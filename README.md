@@ -13,6 +13,8 @@
 	+ data
 		- hw3_mycocodata_bboxes_comp_zlib.npy
 		- ...
+		- train_indices.npy
+		- test_indices.npy
 	+ pretrained
 	    - checkpoint680.pth
 
