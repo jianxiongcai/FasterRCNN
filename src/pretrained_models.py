@@ -1,6 +1,7 @@
 import torchvision
 import torch
 from dataset import *
+import utils
 
 
 def pretrained_models_680(checkpoint_file,eval=True):
@@ -32,6 +33,8 @@ def pretrained_models_680(checkpoint_file,eval=True):
     return backbone, rpn
 
 if __name__ == '__main__':
+    # reproducibility
+    utils.set_deterministic()
 
     # Put the path were you save the given pretrained model
     pretrained_path='../pretrained/checkpoint680.pth'
@@ -51,13 +54,17 @@ if __name__ == '__main__':
     # load the data into data.Dataset
     dataset = BuildDataset(paths, augmentation=False)
 
+    # Note (jianxiong): original implementation
     # Standard Dataloaders Initialization
-    full_size = len(dataset)
-    train_size = int(full_size * 0.8)
-    test_size = full_size - train_size
+    # full_size = len(dataset)
+    # train_size = int(full_size * 0.8)
+    # test_size = full_size - train_size
 
-    torch.random.manual_seed(1)
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    # torch.random.manual_seed(1)
+    # train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+
+    # Note (jianxiong): always load from saved indice (if available)
+    train_dataset, test_dataset = utils.split_dataset(dataset)
 
     batch_size = 10
     print("batch size:", batch_size)
