@@ -1,5 +1,5 @@
 import torch
-import torchvision
+import torchvision.transforms.functional
 from torchvision import transforms
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
@@ -151,6 +151,23 @@ class BuildDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.N_images
+
+    @staticmethod
+    def torch_interpolate(x, H, W):
+        """
+        A quick wrapper function for torch interpolate
+        :return:
+        """
+        assert isinstance(x, torch.Tensor)
+        C = x.shape[0]
+        # require input: mini-batch x channels x [optional depth] x [optional height] x width
+        x_interm = torch.unsqueeze(x, 0)
+        x_interm = torch.unsqueeze(x_interm, 0)
+
+        tensor_out = F.interpolate(x_interm, (C, H, W))
+        tensor_out = tensor_out.squeeze(0)
+        tensor_out = tensor_out.squeeze(0)
+        return tensor_out
 
 
 
