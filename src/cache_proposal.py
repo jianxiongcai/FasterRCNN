@@ -6,6 +6,7 @@ import torch
 from torchvision.models.detection.image_list import ImageList
 import h5py
 import numpy as np
+from tqdm import tqdm
 
 from pretrained_models import pretrained_models_680
 from dataset import BuildDataset, BuildDataLoader
@@ -23,7 +24,7 @@ batch_size = 10
 print("batch size:", batch_size)
 
 # Here we keep the top 20, but during training you should keep around 200 boxes from the 1000 proposals
-keep_topK = 100
+keep_topK = 200
 
 # =========================== Code ============================\
 def create_h5_dset(rpn_cache_file, N_images, N_proposal):
@@ -45,10 +46,10 @@ def create_h5_dset(rpn_cache_file, N_images, N_proposal):
     feat_sizes_raw = [(256, 200, 272), (256, 100, 136), (256, 50, 68), (256, 25, 34), (256, 13, 17)]
     feat_sizes = []
     for i in range(len(feat_sizes_raw)):
-        feat_sizes[i].append((N_images,) + feat_sizes_raw[i])
+        feat_sizes.append((N_images,) + feat_sizes_raw[i])
 
     h5_fd = h5py.File(rpn_cache_file, "w")
-    h5_dict['proposal'] = h5_fd.create_dataset("proposal", (N_images, N_proposal, 2), chunks=True)
+    h5_dict['proposal'] = h5_fd.create_dataset("proposal", (N_images, N_proposal, 4), chunks=True)
     for i in range(len(feat_sizes)):
         key = 'feat_{}'.format(i)
         h5_dict[key] = h5_fd.create_dataset(key, feat_sizes[i], chunks=True)
@@ -66,10 +67,11 @@ def save_rpn_result(proposals_np, fpn_feat_list_np, index, h5_dsets):
     :return:
     """
     # flag check
-    assert isinstance(proposals_np, np.ndarray)
-    for i in range(5):
-        assert isinstance(fpn_feat_list_np[i], np.ndarray)
+    assert isinstance(proposals_np, list)
+    assert isinstance(fpn_feat_list_np, list)
     assert isinstance(index, list)
+    assert isinstance(proposals_np[0], np.ndarray)
+    assert isinstance(fpn_feat_list_np[0], np.ndarray)
 
     bz = len(proposals_np)
     assert fpn_feat_list_np[0].shape[0] == bz
@@ -126,19 +128,19 @@ demo_build_loader = BuildDataLoader(dataset, batch_size=batch_size, shuffle=Fals
 demo_loader = demo_build_loader.loader()
 
 h5_fd, h5_dsets = create_h5_dset(rpn_cache_file, len(dataset), keep_topK)
-for iter, batch in enumerate(demo_loader, 0):
+for iter, batch in enumerate(tqdm(demo_loader), 0):
     images = batch['images'].to(device)
     index = batch['index']
 
     proposals, fpn_feat_list = infer_proposal(images, backbone, rpn, keep_topK)
 
     # convert to numpy
-    proposals_np = list()
-    fpn_feat_list_np = list()
-    for i in range(5):
+    proposals_np = list()                   # list:len(bz){(keep_topK,4)}
+    fpn_feat_list_np = list()               # list:len(FPN){(bz,256,H_feat,W_feat)}
+    for i in range(len(proposals)):
         proposals_np.append(proposals[i].cpu().detach().numpy())
     for i in range(5):
-        fpn_feat_list_np[i] = fpn_feat_list[i].cpu().detach().numpy()
+        fpn_feat_list_np.append(fpn_feat_list[i].cpu().detach().numpy())
 
     # save to h5
     save_rpn_result(proposals_np, fpn_feat_list_np, index, h5_dsets)
