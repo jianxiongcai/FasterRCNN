@@ -10,6 +10,9 @@ class BoxHead(torch.nn.Module):
         self.P=P
         # TODO initialize BoxHead
 
+        # define network
+
+
 
 
     #  This function assigns to each proposal either a ground truth box or the background class (we assume background class is 0)
@@ -48,7 +51,7 @@ class BoxHead(torch.nn.Module):
             W = torch.abs(proposal_img[:, 2] - proposal_img[:, 0])
             H = torch.abs(proposal_img[:, 3] - proposal_img[:, 1])
             assert W.dim() == 1
-            K = 4 + torch.log2(torch.sqrt(W * H)/ 224 + 1e-8)
+            K = torch.floor(4 + torch.log2(torch.sqrt(W * H)/ 224 + 1e-8))
             K = torch.clamp(K, 2, 5)
             # to feature map level index
             # K denotes which feature level to pool feature from
@@ -57,15 +60,19 @@ class BoxHead(torch.nn.Module):
             # do rescaling w.r.t feature
             # First feature map has stride of 4, second stride of 8
             # K \in [0, 3]
+            # prop_rescaled: (per_image_proposals, 4)
             rescale_ratio = torch.pow(2, K) * 4
-            prop_rescaled = rescale_ratio / proposals
-
-            debug = True
+            prop_rescaled = proposal_img / torch.unsqueeze(rescale_ratio, dim=1)
 
             # pool feature from feature map
             for level in range(5):
-                feat_vec[K == level] = torchvision.ops.roi_align(fpn_feat_list[level][img_i],
-                                                                 prop_rescaled[K == level], (P, P))
+                # only contain proposal for this level (rescaled), extend to 5 dimension (required trochvision api)
+                N_prop_level = torch.sum(K == level).item()
+                prop_per_level = torch.zeros((N_prop_level, 5))
+                prop_per_level[:, 0] = img_i
+                prop_per_level[:, 1:5] = prop_rescaled[K == level]
+                feat_vec[K == level] = torchvision.ops.roi_align(fpn_feat_list[level],
+                                                                 prop_per_level, (P, P)).view(-1, 256 * P * P)
             feat_vec_list.append(feat_vec)
         feature_vectors = torch.cat(feat_vec_list, dim=0)
 
@@ -87,8 +94,9 @@ class BoxHead(torch.nn.Module):
     #       scores: list:len(bz){(post_NMS_boxes_per_image)}   ( the score for the top class for the regressed box)
     #       labels: list:len(bz){(post_NMS_boxes_per_image)}   (top class of each regressed box)
     def postprocess_detections(self, class_logits, box_regression, proposals, conf_thresh=0.5, keep_num_preNMS=500, keep_num_postNMS=50):
+        raise NotImplementedError("")
 
-        return boxes, scores, labels
+        # return boxes, scores, labels
 
 
 
