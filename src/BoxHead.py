@@ -8,11 +8,22 @@ class BoxHead(torch.nn.Module):
     def __init__(self,Classes=3,P=7):
         self.C=Classes
         self.P=P
-        # TODO initialize BoxHead
-
         # define network
+        self.interm_layer = nn.Sequential(
+            nn.Linear(256 * P * P, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1024),
+            nn.ReLU()
+        )
 
+        self.classifier = nn.Sequential(
+            nn.Linear(1024, self.C+1),
+            nn.Softmax(dim=1)
+        )
 
+        self.regressor = nn.Sequential(
+            nn.Linear(1024, self.C * 4),
+        )
 
 
     #  This function assigns to each proposal either a ground truth box or the background class (we assume background class is 0)
@@ -41,6 +52,7 @@ class BoxHead(torch.nn.Module):
         #####################################
         # Here you can use torchvision.ops.RoIAlign check the docs
         #####################################
+        assert P == self.P, "[ERROR] Parameter does not agree with each other. P: {}, self.P: {}".format(P, self.P)
         bz = len(proposals)
         feat_vec_list = []
         for img_i in range(bz):
@@ -127,6 +139,13 @@ class BoxHead(torch.nn.Module):
     #                                               CrossEntropyLoss you should not pass the output through softmax here)
     #        box_pred:     (total_proposals,4*C)
     def forward(self, feature_vectors):
+        x = self.interm_layer(feature_vectors)
+
+        class_logits = self.classifier(x)
+        box_pred = self.regressor(x)
+
+        assert class_logits.shape[1] == self.C + 1
+        assert box_pred.shape[1] == self.C * 4
 
         return class_logits, box_pred
 
