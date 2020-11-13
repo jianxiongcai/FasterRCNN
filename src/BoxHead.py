@@ -5,12 +5,13 @@ import torchvision.ops
 from utils import *
 
 class BoxHead(torch.nn.Module):
-    def __init__(self,Classes=3,P=7,device=('cuda' if torch.cuda.is_available() else 'cpu'),):
+    def __init__(self,Classes=3,P=7,device=('cuda' if torch.cuda.is_available() else 'cpu')):
         super(BoxHead, self).__init__()
         self.C=Classes
         self.P=P
         # TODO initialize BoxHead
         self.device = device
+        self._init_weights()
 
         # define network
         self.interm_layer = nn.Sequential(
@@ -33,6 +34,21 @@ class BoxHead(torch.nn.Module):
         # define loss
         self.ce_loss = nn.CrossEntropyLoss(reduction='mean')
         self.smooth_l1_loss = nn.SmoothL1Loss(reduction='mean')
+
+        # This function initialize weights and bias for fully connected layer
+    def _init_weights(self):
+        for m in self.interm_layer.modules():
+            if isinstance(m, nn.Linear):
+                m.weight.data = torch.nn.init.normal_(m.weight.data, mean=0.0, std=0.01)
+                m.bias.data = torch.nn.init.constant_(m.bias.data, 0)
+        for m in self.classifier.modules():
+            if isinstance(m, nn.Linear):
+                m.weight.data = torch.nn.init.normal_(m.weight.data, mean=0.0, std=0.01)
+                m.bias.data = torch.nn.init.constant_(m.bias.data, 0)
+        for m in self.regressor.modules():
+            if isinstance(m, nn.Linear):
+                m.weight.data = torch.nn.init.normal_(m.weight.data, mean=0.0, std=0.01)
+                m.bias.data = torch.nn.init.constant_(m.bias.data, 0)
 
 
     #  This function assigns to each proposal either a ground truth box or the background class (we assume background class is 0)
@@ -275,3 +291,4 @@ class BoxHead(torch.nn.Module):
         return class_logits, box_pred
 
 if __name__ == '__main__':
+    pass
