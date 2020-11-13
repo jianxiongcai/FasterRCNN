@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
+import torchvision.ops
 from utils import *
 
 class BoxHead(torch.nn.Module):
@@ -37,6 +38,36 @@ class BoxHead(torch.nn.Module):
         #####################################
         # Here you can use torchvision.ops.RoIAlign check the docs
         #####################################
+        bz = len(proposals)
+        feat_vec_list = []
+        for img_i in range(bz):
+            proposal_img = proposals[img_i]             # proposal within one image
+            feat_vec = torch.zeros(len(proposal_img), 256 * P * P)
+
+            # compute the scale
+            W = torch.abs(proposal_img[:, 2] - proposal_img[:, 0])
+            H = torch.abs(proposal_img[:, 3] - proposal_img[:, 1])
+            assert W.dim() == 1
+            K = 4 + torch.log2(torch.sqrt(W * H)/ 224 + 1e-8)
+            K = torch.clamp(K, 2, 5)
+            # to feature map level index
+            # K denotes which feature level to pool feature from
+            K = K - 2
+
+            # do rescaling w.r.t feature
+            # First feature map has stride of 4, second stride of 8
+            # K \in [0, 3]
+            rescale_ratio = torch.pow(2, K) * 4
+            prop_rescaled = rescale_ratio / proposals
+
+            debug = True
+
+            # pool feature from feature map
+            for level in range(5):
+                feat_vec[K == level] = torchvision.ops.roi_align(fpn_feat_list[level][img_i],
+                                                                 prop_rescaled[K == level], (P, P))
+            feat_vec_list.append(feat_vec)
+        feature_vectors = torch.cat(feat_vec_list, dim=0)
 
         return feature_vectors
 
