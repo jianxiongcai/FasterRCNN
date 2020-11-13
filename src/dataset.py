@@ -15,8 +15,6 @@ class BuildDataset(torch.utils.data.Dataset):
         #############################################
         # Initialize  Dataset
         #############################################
-        if (augmentation):
-            raise RuntimeError("[ERROR] Not supported yet! => proposal caching.")
 
         self.augmentation = augmentation
         # all files

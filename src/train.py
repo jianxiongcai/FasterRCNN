@@ -1,7 +1,6 @@
 """
 Training Main
 """
-import utils
 from dataset import BuildDataset, BuildDataLoader
 from BoxHead import BoxHead
 
@@ -77,6 +76,7 @@ train_size = int(full_size * 0.8)
 test_size = full_size - train_size
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
+
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 train_loader = train_build_loader.loader()
 
@@ -85,7 +85,7 @@ test_loader = test_build_loader.loader()
 
 # ============================ Train ================================
 box_head = BoxHead(device=device)
-if torch.cuda.device_count() > 1:
+if torch.cuda.is_available() and torch.cuda.device_count() > 1:
   print("Let's use", torch.cuda.device_count(), "GPUs!")
   box_head = nn.DataParallel(box_head)
 box_head.to(device)
@@ -205,3 +205,5 @@ for epoch in range(num_epochs):
     }, path)
     if epoch != 0:
         scheduler.step()
+    if epoch == 1:
+        break

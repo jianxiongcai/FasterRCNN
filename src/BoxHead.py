@@ -11,7 +11,6 @@ class BoxHead(torch.nn.Module):
         self.P=P
         # TODO initialize BoxHead
         self.device = device
-        self._init_weights()
 
         # define network
         self.interm_layer = nn.Sequential(
@@ -35,7 +34,9 @@ class BoxHead(torch.nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(reduction='mean')
         self.smooth_l1_loss = nn.SmoothL1Loss(reduction='mean')
 
-        # This function initialize weights and bias for fully connected layer
+        self._init_weights()
+
+    # This function initialize weights and bias for fully connected layer
     def _init_weights(self):
         for m in self.interm_layer.modules():
             if isinstance(m, nn.Linear):
@@ -66,7 +67,7 @@ class BoxHead(torch.nn.Module):
         for i in range(bz):
             total_num_pro += proposals[i].shape[0]
 
-        labels = torch.zeros(total_num_pro).to(self.device)
+        labels = torch.zeros(total_num_pro, dtype = torch.long).to(self.device)
         regressor_target = torch.zeros(total_num_pro, 4).to(self.device)
 
         count = 0
@@ -79,7 +80,6 @@ class BoxHead(torch.nn.Module):
             y[:, 3] = (x[:, 3] - x[:, 1])
             box_bz = bbox[bz_index].view(-1, 4)
             gt_label_bz = gt_labels[bz_index]
-            print(gt_label_bz.shape)
             num_obj = box_bz.shape[0]
             num_pro = y.shape[0]
 
