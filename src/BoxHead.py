@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
+import torchvision.ops
 from utils import *
 
 class BoxHead(torch.nn.Module):
@@ -11,6 +12,27 @@ class BoxHead(torch.nn.Module):
         # TODO initialize BoxHead
         self.device = device
 
+        # define network
+        self.interm_layer = nn.Sequential(
+            nn.Linear(256 * P * P, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1024),
+            nn.ReLU()
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Linear(1024, self.C+1)
+            # No softmax here. (Softmax performed in CrossEntropyLoss when computing loss)
+            # nn.Softmax(dim=1)
+        )
+
+        self.regressor = nn.Sequential(
+            nn.Linear(1024, self.C * 4),
+        )
+
+        # define loss
+        self.ce_loss = nn.CrossEntropyLoss(reduction='mean')
+        self.smooth_l1_loss = nn.SmoothL1Loss(reduction='mean')
 
 
     #  This function assigns to each proposal either a ground truth box or the background class (we assume background class is 0)
@@ -77,6 +99,41 @@ class BoxHead(torch.nn.Module):
         #####################################
         # Here you can use torchvision.ops.RoIAlign check the docs
         #####################################
+        assert P == self.P, "[ERROR] Parameter does not agree with each other. P: {}, self.P: {}".format(P, self.P)
+        bz = len(proposals)
+        feat_vec_list = []
+        for img_i in range(bz):
+            proposal_img = proposals[img_i]             # proposal within one image
+            feat_vec = torch.zeros(len(proposal_img), 256 * P * P)
+
+            # compute the scale
+            W = torch.abs(proposal_img[:, 2] - proposal_img[:, 0])
+            H = torch.abs(proposal_img[:, 3] - proposal_img[:, 1])
+            assert W.dim() == 1
+            K = torch.floor(4 + torch.log2(torch.sqrt(W * H)/ 224 + 1e-8))
+            K = torch.clamp(K, 2, 5)
+            # to feature map level index
+            # K denotes which feature level to pool feature from
+            K = K - 2
+
+            # do rescaling w.r.t feature
+            # First feature map has stride of 4, second stride of 8
+            # K \in [0, 3]
+            # prop_rescaled: (per_image_proposals, 4)
+            rescale_ratio = torch.pow(2, K) * 4
+            prop_rescaled = proposal_img / torch.unsqueeze(rescale_ratio, dim=1)
+
+            # pool feature from feature map
+            for level in range(5):
+                # only contain proposal for this level (rescaled), extend to 5 dimension (required trochvision api)
+                N_prop_level = torch.sum(K == level).item()
+                prop_per_level = torch.zeros((N_prop_level, 5))
+                prop_per_level[:, 0] = img_i
+                prop_per_level[:, 1:5] = prop_rescaled[K == level]
+                feat_vec[K == level] = torchvision.ops.roi_align(fpn_feat_list[level],
+                                                                 prop_per_level, (P, P)).view(-1, 256 * P * P)
+            feat_vec_list.append(feat_vec)
+        feature_vectors = torch.cat(feat_vec_list, dim=0)
 
         return feature_vectors
 
@@ -96,8 +153,9 @@ class BoxHead(torch.nn.Module):
     #       scores: list:len(bz){(post_NMS_boxes_per_image)}   ( the score for the top class for the regressed box)
     #       labels: list:len(bz){(post_NMS_boxes_per_image)}   (top class of each regressed box)
     def postprocess_detections(self, class_logits, box_regression, proposals, conf_thresh=0.5, keep_num_preNMS=500, keep_num_postNMS=50):
+        raise NotImplementedError("")
 
-        return boxes, scores, labels
+        # return boxes, scores, labels
 
 
 
@@ -115,12 +173,90 @@ class BoxHead(torch.nn.Module):
     #      loss_class: scalar
     #      loss_regr: scalar
     def compute_loss(self,class_logits, box_preds, labels, regression_targets,l=1,effective_batch=150):
+        assert isinstance(labels, torch.LongTensor)
 
+        # do sampling (class balancing ~3:1)
+        class_logits_sampled, box_preds_sampled, \
+        labels_sampled, regression_targets_sampled = self.do_sampling(class_logits, box_preds,
+                                                                      labels, regression_targets,
+                                                                      effective_batch)
+
+        # cls loss
+        loss_class = self.ce_loss(class_logits_sampled, torch.squeeze(labels_sampled, dim=1))
+
+        # reg loss
+        # take all non-background bbox
+        box_list = [None, None, None]           # list: (num_pos_object, 4), only keep box correspond to gt object
+        gt_box_list = [None, None, None]
+        for gt_class in range(3):
+            # 1-d binary indicator: if labels_sampled[i] == gt_class
+            class_mask = (torch.squeeze(labels_sampled, dim=1) == (gt_class + 1))
+
+            # selection range for class i: [i*4, i*4+4)
+            box_selected = box_preds_sampled[class_mask, gt_class * 4: gt_class * 4 + 4]
+            gt_box_selected = regression_targets[class_mask]
+
+            box_list[gt_class] = box_selected
+            gt_box_list[gt_class] = gt_box_selected
+
+        # put all boxes together and compute loss
+        box_regr = torch.cat(box_list, dim=0)
+        gt_box_regr = torch.cat(gt_box_list, dim=0)
+        loss_regr = self.smooth_l1_loss(box_regr, gt_box_regr)
+
+        loss = loss_class * l * loss_regr
         return loss, loss_class, loss_regr
 
+    def do_sampling(self, class_logits, box_preds, labels, regression_targets, effective_batch):
+        """
 
+        All params refer to compute_loss()
+        :return:
+        """
+        # number of positive sample to keep after sampling
+        N_pos = int(0.75 * effective_batch)
 
-    # Forward the pooled feature vectors through the intermediate layer and the classifier, regressor of the box head
+        # do positive sampling
+        indicator_pos = torch.squeeze(labels != 0, dim=1)             # 1 dimensional
+        indicator_neg = torch.squeeze(labels == 0, dim=1)
+        indices_pos = torch.squeeze(torch.nonzero(indicator_pos), dim=1)
+        indices_neg = torch.squeeze(torch.nonzero(indicator_neg), dim=1)
+
+        if len(indices_pos) <= N_pos:       # take all available
+            print("[WARN, minor] Not enough positive samples. Expected: {}, Actual: {}".format(N_pos, len(indices_pos)))
+            N_pos = len(indices_pos)
+            indices_keep_pos = indices_pos
+        else:
+            indices_keep_pos = self.random_choice(indices_pos, N_pos)
+
+        # number of negative samples to keep
+        N_neg = effective_batch - N_pos
+        if len(indices_neg) < N_neg:       # take all available
+            assert len(indices_neg) >= N_neg
+            print("[WARN, major] Not enough negative samples. Expected: {}, Actual: {}".format(N_neg, len(indices_neg)))
+            N_neg = len(indices_neg)
+            indices_keep_neg = indices_neg
+        else:
+            indices_keep_neg = self.random_choice(indices_neg, N_neg)
+
+        # return sampled batch
+        return torch.cat([class_logits[indices_keep_pos], class_logits[indices_keep_neg]], dim=0), \
+               torch.cat([box_preds[indices_keep_pos], box_preds[indices_keep_neg]], dim=0), \
+               torch.cat([labels[indices_keep_pos], labels[indices_keep_neg]], dim=0), \
+               torch.cat([regression_targets[indices_keep_pos], regression_targets[indices_keep_neg]], dim=0),
+
+    @staticmethod
+    def random_choice(x, N_sample):
+        """
+
+        :param x: the input tensor to select from
+        :param N_sample: number of sample to keep
+        :return:
+        """
+        idx = torch.randperm(len(x))
+        return x[idx]
+
+            # Forward the pooled feature vectors through the intermediate layer and the classifier, regressor of the box head
     # Input:
     #        feature_vectors: (total_proposals, 256*P*P)
     # Outputs:
@@ -128,6 +264,13 @@ class BoxHead(torch.nn.Module):
     #                                               CrossEntropyLoss you should not pass the output through softmax here)
     #        box_pred:     (total_proposals,4*C)
     def forward(self, feature_vectors):
+        x = self.interm_layer(feature_vectors)
+
+        class_logits = self.classifier(x)
+        box_pred = self.regressor(x)
+
+        assert class_logits.shape[1] == self.C + 1
+        assert box_pred.shape[1] == self.C * 4
 
         return class_logits, box_pred
 
