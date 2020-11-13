@@ -56,7 +56,22 @@ def MultiApply(func, *args, **kwargs):
     return tuple(map(list, zip(*map_results)))
 
 # This function compute the IOU between two set of boxes 
-def IOU(boxA, boxB):
+def IOU(bbox_1, bbox_2):
+    x_1up, y_1up, x_1l, y_1l = bbox_1[:, 0] - 0.5 * bbox_1[:, 2], bbox_1[:, 1] - 0.5 * bbox_1[:, 3], bbox_1[:,0] + 0.5 * bbox_1[:,2], bbox_1[:,1] + 0.5 * bbox_1[:,3]
+    x_2up, y_2up, x_2l, y_2l = bbox_2[:, 0] - 0.5 * bbox_2[:, 2], bbox_2[:, 1] - 0.5 * bbox_2[:, 3], bbox_2[:,0] + 0.5 * bbox_2[:,2], bbox_2[:,1] + 0.5 * bbox_2[:,3]
+
+    x_up = torch.max(x_1up, x_2up)
+    y_up = torch.max(y_1up, y_2up)
+
+    x_l = torch.min(x_1l, x_2l)
+    y_l = torch.min(y_1l, y_2l)
+
+    inter_area = (x_l - x_up).clamp(min=0) * (y_l - y_up).clamp(min=0)
+
+    area_box1 = (x_1l - x_1up).clamp(min=0) * (y_1l - y_1up).clamp(min=0)
+    area_box2 = (x_2l - x_2up).clamp(min=0) * (y_2l - y_2up).clamp(min=0)
+    union_area = area_box1 + area_box2 - inter_area
+    iou = (inter_area + 1e-9) / (union_area + 1e-9)
 
     return iou
 

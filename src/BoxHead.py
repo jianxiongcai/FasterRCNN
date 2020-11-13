@@ -4,24 +4,64 @@ from torch import nn
 from utils import *
 
 class BoxHead(torch.nn.Module):
-    def __init__(self,Classes=3,P=7):
+    def __init__(self,Classes=3,P=7,device=('cuda' if torch.cuda.is_available() else 'cpu'),):
+        super(BoxHead, self).__init__()
         self.C=Classes
         self.P=P
         # TODO initialize BoxHead
+        self.device = device
 
 
 
     #  This function assigns to each proposal either a ground truth box or the background class (we assume background class is 0)
-    #  Input:
+    #  Input:pytorch
     #       proposals: list:len(bz){(per_image_proposals,4)} ([x1,y1,x2,y2] format)
     #       gt_labels: list:len(bz) {(n_obj)}
     #       bbox: list:len(bz){(n_obj, 4)}
     #  Output: (make sure the ordering of the proposals are consistent with MultiScaleRoiAlign)
+
     #       labels: (total_proposals,1) (the class that the proposal is assigned)
     #       regressor_target: (total_proposals,4) (target encoded in the [t_x,t_y,t_w,t_h] format)
-    def create_ground_truth(self,proposals,gt_labels,bbox):
+    def create_ground_truth(self,proposals, gt_labels, bbox):
+        bz = len(proposals)
+        total_num_pro = 0
+        for i in range(bz):
+            total_num_pro += proposals[i].shape[0]
 
-        return labels,regressor_target
+        labels = torch.zeros(total_num_pro).to(self.device)
+        regressor_target = torch.zeros(total_num_pro, 4).to(self.device)
+
+        count = 0
+        for bz_index, each_bz_pro in enumerate(proposals):
+            x = each_bz_pro
+            y = torch.zeros_like(x, dtype=torch.float, device=self.device)
+            y[:, 0] = (x[:, 0] + x[:, 2]) / 2
+            y[:, 1] = (x[:, 1] + x[:, 3]) / 2
+            y[:, 2] = (x[:, 2] - x[:, 0])
+            y[:, 3] = (x[:, 3] - x[:, 1])
+            box_bz = bbox[bz_index].view(-1, 4)
+            gt_label_bz = gt_labels[bz_index]
+            print(gt_label_bz.shape)
+            num_obj = box_bz.shape[0]
+            num_pro = y.shape[0]
+
+            for i in range(num_pro):
+                cur_pro = y[i].view(1, -1)
+                cur_pro_n = cur_pro.repeat(num_obj, 1)
+                iou = IOU(cur_pro_n, box_bz)
+                max_iou = torch.max(iou)
+                max_iou_idx = torch.argmax(iou)
+                if max_iou <= 0.5:
+                    continue
+                if max_iou > 0.5:
+                    labels[count + i] = gt_label_bz[max_iou_idx]
+                    regressor_target[count + i, 0] = (box_bz[max_iou_idx, 0] - y[i, 0]) / (y[i, 2] + 1e-9)
+                    regressor_target[count + i, 1] = (box_bz[max_iou_idx, 1] - y[i, 1]) / (y[i, 3] + 1e-9)
+                    regressor_target[count + i, 2] = torch.log(box_bz[max_iou_idx, 2] / y[i, 2])
+                    regressor_target[count + i, 3] = torch.log(box_bz[max_iou_idx, 3] / y[i, 3])
+            count += num_pro
+        labels=torch.unsqueeze(labels,1)
+        return labels, regressor_target
 
 
 
