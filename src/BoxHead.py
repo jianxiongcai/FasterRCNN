@@ -224,7 +224,7 @@ class BoxHead(torch.nn.Module):
         gt_box_regr = torch.cat(gt_box_list, dim=0)
         loss_regr = self.smooth_l1_loss(box_regr, gt_box_regr)
 
-        loss = loss_class * l * loss_regr
+        loss = loss_class + l * loss_regr
         return loss, loss_class, loss_regr
 
     def do_sampling(self, class_logits, box_preds, labels, regression_targets, effective_batch):
