@@ -3,6 +3,7 @@ Training Main
 """
 from dataset import BuildDataset, BuildDataLoader
 from BoxHead import BoxHead
+from utils import split_dataset
 
 import os.path
 import torch.backends.cudnn
@@ -21,8 +22,8 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(0)
 
 # =========================== Config ==========================
-batch_size = 2
-init_lr = 7e-4
+batch_size = 4
+init_lr = 1e-4
 num_epochs = 50
 milestones = [8, 13]
 loss_ratio = 4
@@ -44,7 +45,7 @@ def log(mode, logging_cls_loss, logging_reg_loss, logging_tot_loss, LOGGING):
 LOGGING = "wandb"
 if LOGGING == "wandb":
     assert os.system("wandb login $(cat wandb_secret)") == 0
-    wandb.init(project="hw4")
+    wandb.init(project="faster_rcnn")
     wandb.config.update({
         'batch_size': batch_size,
         'init_lr': init_lr,
@@ -61,7 +62,7 @@ bboxes_path = "../data/hw3_mycocodata_bboxes_comp_zlib.npy"
 
 # Put the path where you save the given pretrained model
 pretrained_path = '../pretrained/checkpoint680.pth'
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 backbone, rpn = pretrained_models_680(pretrained_path)
 
 # we will need the ImageList from torchvision
@@ -71,10 +72,7 @@ paths = [imgs_path, masks_path, labels_path, bboxes_path]
 # load the data into data.Dataset
 dataset = BuildDataset(paths, augmentation=True)
 
-full_size = len(dataset)
-train_size = int(full_size * 0.8)
-test_size = full_size - train_size
-train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+train_dataset, test_dataset = split_dataset(dataset)
 
 
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
@@ -85,9 +83,9 @@ test_loader = test_build_loader.loader()
 
 # ============================ Train ================================
 box_head = BoxHead(device=device)
-if torch.cuda.is_available() and torch.cuda.device_count() > 1:
-  print("Let's use", torch.cuda.device_count(), "GPUs!")
-  box_head = nn.DataParallel(box_head)
+# if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+#   print("Let's use", torch.cuda.device_count(), "GPUs!")
+#   box_head = nn.DataParallel(box_head)
 box_head.to(device)
 
 optimizer = optim.Adam(box_head.parameters(), lr=init_lr)
@@ -205,5 +203,5 @@ for epoch in range(num_epochs):
     }, path)
     if epoch != 0:
         scheduler.step()
-    if epoch == 1:
-        break
+    # if epoch == 1:
+    #     break

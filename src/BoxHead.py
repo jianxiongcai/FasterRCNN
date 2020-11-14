@@ -1,4 +1,5 @@
 import torch
+import torch.cuda
 import torch.nn.functional as F
 from torch import nn
 import torchvision.ops
@@ -118,9 +119,12 @@ class BoxHead(torch.nn.Module):
         assert P == self.P, "[ERROR] Parameter does not agree with each other. P: {}, self.P: {}".format(P, self.P)
         bz = len(proposals)
         feat_vec_list = []
+
+        device = proposals[0].device
+
         for img_i in range(bz):
             proposal_img = proposals[img_i]             # proposal within one image
-            feat_vec = torch.zeros(len(proposal_img), 256 * P * P)
+            feat_vec = torch.zeros(len(proposal_img), 256 * P * P, device=device)
 
             # compute the scale
             W = torch.abs(proposal_img[:, 2] - proposal_img[:, 0])
@@ -143,7 +147,7 @@ class BoxHead(torch.nn.Module):
             for level in range(5):
                 # only contain proposal for this level (rescaled), extend to 5 dimension (required trochvision api)
                 N_prop_level = torch.sum(K == level).item()
-                prop_per_level = torch.zeros((N_prop_level, 5))
+                prop_per_level = torch.zeros((N_prop_level, 5), device=device)
                 prop_per_level[:, 0] = img_i
                 prop_per_level[:, 1:5] = prop_rescaled[K == level]
                 feat_vec[K == level] = torchvision.ops.roi_align(fpn_feat_list[level],
@@ -189,7 +193,7 @@ class BoxHead(torch.nn.Module):
     #      loss_class: scalar
     #      loss_regr: scalar
     def compute_loss(self,class_logits, box_preds, labels, regression_targets,l=1,effective_batch=150):
-        assert isinstance(labels, torch.LongTensor)
+        assert isinstance(labels, torch.LongTensor) or isinstance(labels, torch.cuda.LongTensor)
 
         # do sampling (class balancing ~3:1)
         class_logits_sampled, box_preds_sampled, \
