@@ -7,7 +7,6 @@ from utils import split_dataset
 
 import os.path
 import torch.backends.cudnn
-import torch.nn as nn
 import torch.utils.data
 import torch.optim as optim
 import numpy as np
@@ -44,8 +43,8 @@ def log(mode, logging_cls_loss, logging_reg_loss, logging_tot_loss, LOGGING):
 # LOGGING = ""
 LOGGING = "wandb"
 if LOGGING == "wandb":
-    assert os.system("wandb login $(cat wandb_secret)") == 0
-    wandb.init(project="faster_rcnn")
+    # assert os.system("wandb login") == 0
+    wandb.init(project="faster-rcnn", entity="680-faster-rcnn")
     wandb.config.update({
         'batch_size': batch_size,
         'init_lr': init_lr,
