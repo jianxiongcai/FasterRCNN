@@ -33,7 +33,7 @@ class BoxHead(torch.nn.Module):
 
         # define loss
         self.ce_loss = nn.CrossEntropyLoss(reduction='mean')
-        self.smooth_l1_loss = nn.SmoothL1Loss(reduction='mean')
+        self.smooth_l1_loss = nn.SmoothL1Loss(reduction='sum')
 
         self._init_weights()
 
@@ -214,7 +214,7 @@ class BoxHead(torch.nn.Module):
 
             # selection range for class i: [i*4, i*4+4)
             box_selected = box_preds_sampled[class_mask, gt_class * 4: gt_class * 4 + 4]
-            gt_box_selected = regression_targets[class_mask]
+            gt_box_selected = regression_targets_sampled[class_mask]
 
             box_list[gt_class] = box_selected
             gt_box_list[gt_class] = gt_box_selected
@@ -222,7 +222,7 @@ class BoxHead(torch.nn.Module):
         # put all boxes together and compute loss
         box_regr = torch.cat(box_list, dim=0)
         gt_box_regr = torch.cat(gt_box_list, dim=0)
-        loss_regr = self.smooth_l1_loss(box_regr, gt_box_regr)
+        loss_regr = self.smooth_l1_loss(box_regr, gt_box_regr) / len(labels_sampled)
 
         loss = loss_class + l * loss_regr
         return loss, loss_class, loss_regr
@@ -274,7 +274,7 @@ class BoxHead(torch.nn.Module):
         :return:
         """
         idx = torch.randperm(len(x))
-        return x[idx]
+        return x[idx[0:N_sample]]
 
             # Forward the pooled feature vectors through the intermediate layer and the classifier, regressor of the box head
     # Input:

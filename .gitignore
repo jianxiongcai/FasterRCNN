@@ -7,5 +7,6 @@ data/
 pretrained/
 checkpoints/
 debug_data/
+Test_Cases/
 
 **/wandb
