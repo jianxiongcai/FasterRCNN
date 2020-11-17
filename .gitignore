@@ -9,5 +9,6 @@ pretrained/
 **/checkpoints_*/
 debug_data/
 Test_Cases/
+results/
 
 **/wandb
