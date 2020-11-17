@@ -5,7 +5,8 @@
 
 data/
 pretrained/
-checkpoints/
+**/checkpoints/
+**/checkpoints_*/
 debug_data/
 Test_Cases/
 

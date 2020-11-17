@@ -8,15 +8,17 @@ from pretrained_models import *
 if __name__ == '__main__':
 
     # Put the path were you save the given pretrained model
-    pretrained_path='checkpoint680.pth'
+    pretrained_path='../pretrained/checkpoint680.pth'
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    backbone, rpn = pretrained_models_680(pretrained_path,device=device)
+    backbone, rpn = pretrained_models_680(pretrained_path)
+    backbone = backbone.to(device)
+    rpn = rpn.to(device)
 
     # we will need the ImageList from torchvision
     from torchvision.models.detection.image_list import ImageList
 
     # Put the path were the given hold_out_images.npz file is save and load the images
-    hold_images_path='hold_out_images.npz'
+    hold_images_path='../pretrained/hold_out_images.npz'
     test_images=np.load(hold_images_path,allow_pickle=True)['input_images']
 
 
@@ -27,10 +29,11 @@ if __name__ == '__main__':
     boxHead.eval()
 
     # Put the path were you have your save network
-    train_model_path='train_epoch39'
+    train_model_path='checkpoints/epoch_49'
+    print("[INFO] Loading from model: {}".format(train_model_path))
     checkpoint = torch.load(train_model_path)
     # reload models
-    boxHead.load_state_dict(checkpoint['box_head_state_dict'])
+    boxHead.load_state_dict(checkpoint['model_state_dict'])
     keep_topK=200
 
     cpu_boxes = []
@@ -62,7 +65,7 @@ if __name__ == '__main__':
             # Do whaterver post processing you find performs best
             boxes,scores,labels=boxHead.postprocess_detections(class_logits,box_pred,proposals,conf_thresh=0.8, keep_num_preNMS=200, keep_num_postNMS=3)
 
-            for box, score, label in zip(boxes,scores,labels):
+            for box, score, label in zip(boxes, scores, labels):
                 if box is None:
                     cpu_boxes.append(None)
                     cpu_scores.append(None)
