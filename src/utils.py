@@ -78,44 +78,6 @@ def IOU(bbox_1, bbox_2):
 
 # This function decodes the output of the box head that are given in the [t_x,t_y,t_w,t_h] format
 # into box coordinates where it return the upper left and lower right corner of the bbox
-# Input:
-#       regressed_boxes_t: (total_proposals,4) ([t_x,t_y,t_w,t_h] format)
-#       flatten_proposals: (total_proposals,4) ([x1,y1,x2,y2] format)
-# Output:
-#       box: (total_proposals,4) ([x1,y1,x2,y2] format)
-def output_decoding(regressed_boxes_t,flatten_proposals, device='cpu'):
-    """
-
-    :param proposal_xywh: (N, 4): proposal in xywh format
-    :param box_xywh:      (N, 4): boxes in tx, ty, tw, th
-    :return:
-        box_decoded: the decoded boxes (in format x1, y1, x2, y2)
-    """
-    assert flatten_proposals.shape[1] == 4
-    assert regressed_boxes_t.shape[1] == 4
-
-
-
-    # box_tmp: c_x, c_y, w, h
-    box_tmp = torch.zeros_like(regressed_boxes_t, device=device)
-    box_tmp[:, 0] = regressed_boxes_t[:, 0] * flatten_proposals[:, 2] + flatten_proposals[:, 0]
-    box_tmp[:, 1] = regressed_boxes_t[:, 1] * flatten_proposals[:, 3] + flatten_proposals[:, 1]
-    box_tmp[:, 2] = torch.exp(regressed_boxes_t[:, 2]) * flatten_proposals[:, 2]
-    box_tmp[:, 3] = torch.exp(regressed_boxes_t[:, 3]) * flatten_proposals[:, 3]
-
-    # convert to x1, y1, w1, h1
-    box_decoded = torch.zeros_like(box_tmp, device=device)
-    box_decoded[:, 0] = box_tmp[:, 0] - 0.5 * box_tmp[:, 2]
-    box_decoded[:, 1] = box_tmp[:, 1] - 0.5 * box_tmp[:, 3]
-    box_decoded[:, 2] = box_tmp[:, 0] + 0.5 * box_tmp[:, 2]
-    box_decoded[:, 3] = box_tmp[:, 1] + 0.5 * box_tmp[:, 3]
-
-    assert box_decoded.shape[1] == 4
-
-    return box_decoded
-
-
-# =========================== Jianxiong Added ================================
 def decode_output(proposal_xywh, box_xywh):
     """
 

@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 import utils
 from pretrained_models import pretrained_models_680
-from BoxHead import BoxHead
+from BoxHead import *
 
 
 # ================================ Helpers ==========================================
