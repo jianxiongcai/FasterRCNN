@@ -107,6 +107,7 @@ def decode_output(proposal_xywh, box_xywh):
     box_tmp[:, 2] = torch.exp(box_xywh[:, 2]) * proposal_xywh[:, 2]
     box_tmp[:, 3] = torch.exp(box_xywh[:, 3]) * proposal_xywh[:, 3]
 
+    # convert to x1, y1, w1, h1
     box_decoded = torch.zeros_like(box_tmp, device=box_xywh.device)
     box_decoded[:, 0] = box_tmp[:, 0] - 0.5 * box_tmp[:, 2]
     box_decoded[:, 1] = box_tmp[:, 1] - 0.5 * box_tmp[:, 3]
