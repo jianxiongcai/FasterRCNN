@@ -162,18 +162,17 @@ class BoxHead(torch.nn.Module):
 
     # Post process the output for one image
     # Input:
-    #       result_prob: (len(per_image_proposals),(C+1))
-    #       img_regr: (len(per_image_proposals),4*C)           ([t_x,t_y,t_w,t_h] format)
-    #       pro_per_img: (per_image_proposals,4) (the proposals are produced from RPN [x1,y1,x2,y2] format)
-    #       img_shape: tuple:len(2)
+    #       result_prob: (N,)
+    #       result_class: (N,)
+    #       box_decoded: (N, 4)     [x1,y1,x2,y2]
+    #       IOU_thresh : scalar that is the IOU threshold for the NMS
     #       conf_thresh: scalar
-    #       IOU_thresh: scalar that is the IOU threshold for the NMS
     #       keep_num_preNMS: scalar (number of boxes to keep pre NMS)
     #       keep_num_postNMS: scalar (number of boxes to keep post NMS)
     # Output:
-    #       nms_labels_list: (Post_NMS_boxes)
-    #       nms_boxes_list: (Post_NMS_boxes,4) (decoded coordinates of the boxes that the NMS kept)
-    #       nms_prob_list: (Post_NMS_boxes)
+    #       post_nms_prob: (Post_NMS_boxes,)
+    #       post_nms_class: (Post_NMS_boxes,)
+    #       post_nms_box: (Post_NMS_boxes,4) (decoded coordinates of the boxes that the NMS kept)
 
     def postprocess_detections(self, result_prob, result_class, box_decoded, IOU_thresh, conf_thresh, keep_num_preNMS,keep_num_postNMS):
         ######################################
@@ -224,7 +223,6 @@ class BoxHead(torch.nn.Module):
             for y in range(num_box):
                 iou_mat[x, y] = IOU(torch.unsqueeze(prebox[x, :], 0), torch.unsqueeze(prebox[y, :], 0))
         max_index = set()
-        # max_index = []
 
         # Suppressing small IOU
         for idx_curr in range(len(iou_mat)):    # w.r.t num_box
