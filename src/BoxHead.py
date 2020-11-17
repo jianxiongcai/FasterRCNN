@@ -178,6 +178,10 @@ class BoxHead(torch.nn.Module):
         ######################################
         # TODO postprocess a image
         #####################################
+        assert result_prob.dim() == 1
+        assert result_class.dim() == 1
+        assert box_decoded.dim() == 2
+        assert box_decoded.shape[1] == 4
 
         nms_labels_list, nms_boxes_list, nms_prob_list = [],[],[]
         box_decoded[:, 0] = box_decoded[:, 0].clamp(min=0, max=1088 - 1)
@@ -188,8 +192,8 @@ class BoxHead(torch.nn.Module):
         pre_nms_prob, pre_nms_class, pre_nms_box = selectResult(above_conf_prob, above_conf_class, above_conf_box,
                                                                N_keep=keep_num_preNMS)
         post_nms_labels_list = []
-        post_nms_box = torch.zeros(0, 4)
-        post_nms_prob = torch.zeros(0, dtype=torch.float)
+        post_nms_box = torch.zeros((0, 4), device=result_prob.device)
+        post_nms_prob = torch.zeros(0, dtype=torch.float,  device=result_prob.device)
         for i in range(1,4):
             mask = (pre_nms_class == i)
             class_prob = pre_nms_prob[mask]
@@ -197,6 +201,8 @@ class BoxHead(torch.nn.Module):
             if class_prob.shape[0] == 0:
                 continue
             nms_prob, nms_box = self.NMS(class_prob,class_box, IOU_thresh)
+            assert nms_prob.dim() == 1
+            assert nms_box.dim() == 2
             label = nms_prob.shape[0]*[i]
 
             post_nms_box = torch.cat((post_nms_box, nms_box), dim = 0)

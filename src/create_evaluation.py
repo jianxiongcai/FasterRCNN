@@ -57,13 +57,25 @@ if __name__ == '__main__':
             # A list of features produces by the backbone's FPN levels: list:len(FPN){(bz,256,H_feat,W_feat)}
             fpn_feat_list= list(backout.values())
 
-
+            # do inference
             feature_vectors=boxHead.MultiScaleRoiAlign(fpn_feat_list,proposals)
-
             class_logits,box_pred=boxHead(feature_vectors)
+            class_logits = torch.softmax(class_logits, dim=1)
+
+            # convert proposal => xywh
+            proposal_torch = torch.cat(proposals, dim=0)  # x1 y1 x2 y2
+            proposal_xywh = torch.zeros_like(proposal_torch, device=proposal_torch.device)
+            proposal_xywh[:, 0] = ((proposal_torch[:, 0] + proposal_torch[:, 2]) / 2)
+            proposal_xywh[:, 1] = ((proposal_torch[:, 1] + proposal_torch[:, 3]) / 2)
+            proposal_xywh[:, 2] = torch.abs(proposal_torch[:, 2] - proposal_torch[:, 0])
+            proposal_xywh[:, 3] = torch.abs(proposal_torch[:, 3] - proposal_torch[:, 1])
+            result_prob, result_class, result_box = simplifyOutputs(class_logits, box_pred)
+
+            # decode box coordinate
+            box_decoded = decode_output(proposal_xywh, result_box)
 
             # Do whaterver post processing you find performs best
-            boxes,scores,labels=boxHead.postprocess_detections(class_logits,box_pred,proposals,conf_thresh=0.8, keep_num_preNMS=200, keep_num_postNMS=3)
+            boxes,scores,labels=boxHead.postprocess_detections(result_prob, result_class, box_decoded, conf_thresh=0.8, keep_num_preNMS=200, keep_num_postNMS=3, IOU_thresh=0.5)
 
             for box, score, label in zip(boxes, scores, labels):
                 if box is None:
