@@ -100,12 +100,20 @@ def decode_output(proposal_xywh, box_xywh):
     assert proposal_xywh.shape[1] == 4
     assert box_xywh.shape[1] == 4
 
-    box_decoded = torch.zeros_like(box_xywh, device=box_xywh.device)
-    box_decoded[:, 0] = box_xywh[:, 0] * proposal_xywh[:, 2] + proposal_xywh[:, 0]
-    box_decoded[:, 1] = box_xywh[:, 1] * proposal_xywh[:, 3] + proposal_xywh[:, 1]
-    box_decoded[:, 2] = torch.exp(box_xywh[:, 2]) * proposal_xywh[:, 2]
-    box_decoded[:, 3] = torch.exp(box_xywh[:, 3]) * proposal_xywh[:, 3]
+    # box_tmp: c_x, c_y, w, h
+    box_tmp = torch.zeros_like(box_xywh, device=box_xywh.device)
+    box_tmp[:, 0] = box_xywh[:, 0] * proposal_xywh[:, 2] + proposal_xywh[:, 0]
+    box_tmp[:, 1] = box_xywh[:, 1] * proposal_xywh[:, 3] + proposal_xywh[:, 1]
+    box_tmp[:, 2] = torch.exp(box_xywh[:, 2]) * proposal_xywh[:, 2]
+    box_tmp[:, 3] = torch.exp(box_xywh[:, 3]) * proposal_xywh[:, 3]
 
+    box_decoded = torch.zeros_like(box_tmp, device=box_xywh.device)
+    box_decoded[:, 0] = box_tmp[:, 0] - 0.5 * box_tmp[:, 2]
+    box_decoded[:, 1] = box_tmp[:, 1] - 0.5 * box_tmp[:, 3]
+    box_decoded[:, 2] = box_tmp[:, 0] + 0.5 * box_tmp[:, 2]
+    box_decoded[:, 3] = box_tmp[:, 1] + 0.5 * box_tmp[:, 3]
+
+    assert box_decoded.shape[1] == 4
     return box_decoded
 
 
@@ -138,3 +146,5 @@ def simplifyOutputs(class_logits, box_pred):
         result_box[result_class == (i+1)] = box_pred[result_class == (i+1), (i*4): (i*4 + 4)]
 
     return result_prob, result_class, result_box
+
+
