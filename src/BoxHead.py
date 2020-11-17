@@ -172,12 +172,151 @@ class BoxHead(torch.nn.Module):
     #       boxes: list:len(bz){(post_NMS_boxes_per_image,4)}  ([x1,y1,x2,y2] format)
     #       scores: list:len(bz){(post_NMS_boxes_per_image)}   ( the score for the top class for the regressed box)
     #       labels: list:len(bz){(post_NMS_boxes_per_image)}   (top class of each regressed box)
-    def postprocess_detections(self, class_logits, box_regression, proposals, conf_thresh=0.5, keep_num_preNMS=500, keep_num_postNMS=50):
-        raise NotImplementedError("")
+    def postprocess_detections(self, class_logits, box_regression, proposals, IOU_thresh=0.5, conf_thresh=0.5, keep_num_preNMS=500, keep_num_postNMS=50):
+        ######################################
+        # TODO postprocess a batch of images
+        #####################################
+        bz = len(proposals)
+        boxes = []
+        scores = []
+        labels = []
+        for i in range(bz):
+            proposal_each_img = proposals[i]
+            cls_each_img = class_logits[i * len(proposal_each_img): (i+1)*len(proposal_each_img), :]
+            box_each_img = box_regression[i * len(proposal_each_img): (i+1)*len(proposal_each_img), :]
+            box, score, label = self.postprocessImg(cls_each_img, box_each_img, proposal_each_img, IOU_thresh, conf_thresh, keep_num_preNMS, keep_num_postNMS)
+            boxes.append(box)
+            scores.append(score)
+            labels.append(label)
 
-        # return boxes, scores, labels
+        return boxes, scores, labels
+
+    # Post process the output for one image
+    # Input:
+    #       cls_each_img: (num_proposal_each_img,(C+1))
+    #       box_each_img: (num_proposal_each_img,4*C)           ([t_x,t_y,t_w,t_h] format)
+    #       proposal_each_img: (num_per_image_proposals,4) (the proposals are produced from RPN [x1,y1,x2,y2] format)
+    #       img_shape: tuple:len(2)
+    #       conf_thresh: scalar
+    #       IOU_thresh: scalar that is the IOU threshold for the NMS
+    #       keep_num_preNMS: scalar (number of boxes to keep pre NMS)
+    #       keep_num_postNMS: scalar (number of boxes to keep post NMS)
+    # Output:
+    #       nms_clas: (Post_NMS_boxes)
+    #       nms_prebox: (Post_NMS_boxes,4) (decoded coordinates of the boxes that the NMS kept)
+    def postprocessImg(self,cls_each_img, box_each_img, proposal_each_img, IOU_thresh, conf_thresh, keep_num_preNMS, keep_num_postNMS):
+            ######################################
+            # TODO postprocess a single image
+            #####################################
+            for i in range(3):
+                box_each_img[:, 4* i: 4*(i+1)] = output_decoding(box_each_img[:, 4* i : 4*(i+1)], proposal_each_img, device = self.device)
+
+                # crop boundary crossing
+                box_each_img[:, 4 * i] = box_each_img[:, 4 * i].clamp(min=0, max=1088 - 1)       #x1
+                box_each_img[:, 4 * i + 1] = box_each_img[:, 4 * i + 1].clamp(min=0, max=800 - 1)  #y1
+                box_each_img[:, 4 * i + 2] = box_each_img[:, 4 * i + 2].clamp(min=0, max=1088 - 1)  #x2
+                box_each_img[:, 4 * i + 3] = box_each_img[:, 4 * i + 3].clamp(min=0, max=800 - 1)   #y2
+
+            # prefilter
+            sorted_scores, sorted_class = torch.sort(img_clas[:, 1:], descending=True)  # consider no-background
+            sorted_scores, sorted_class = sorted_scores[:, 0], sorted_class[:, 0] + 1  # change class to {1,2,3}
+            is_high_score = (sorted_scores > conf_thresh)  # suppress class confidence lower than threshold
+            # only keep valid confidence score
+            sorted_scores = sorted_scores[is_high_score]
+            sorted_class = sorted_class[is_high_score]
+            sorted_box = img_regr[is_high_score]
 
 
+            # preNMS
+            scores_order = torch.argsort(sorted_scores, descending=True)  # (len(per_image_proposals),), int
+            scores_order = scores_order[0:keep_num_preNMS]  # (keep_num_preNMS,), int
+            sorted_scores = sorted_scores[scores_order]  # (keep_num_preNMS,), float
+            sorted_class = sorted_class[scores_order]  # (keep_num_preNMS,), int, {1,2,3}
+            sorted_box = sorted_box[scores_order]  # (keep_num_preNMS, 4), float
+
+            # NMS (for each class separately)
+            score, box, label = [], [], []
+            for cls in range(1, self.C + 1):
+                cls_ind = (sorted_class == cls)
+                label.append(torch.ones_like(sorted_scores[cls_ind]) * cls)
+                score.append(sorted_scores[cls_ind])
+                box.append(sorted_box[cls_ind, 4 * (cls - 1):4 * cls])
+
+            each_class_cnt = [len(elem) for elem in score]
+            while True:
+                is_nms_finish = True
+                for cls in range(1, self.C + 1):
+                    nms_score, nms_box = self.NMS(score[cls - 1], box[cls - 1], IOU_thresh)
+                    is_nms_finish *= (each_class_cnt[cls - 1] == len(nms_box))
+                    each_class_cnt[cls - 1] = len(nms_box)
+                    label[cls - 1] = torch.ones_like(nms_score) * cls
+                    score[cls - 1] = nms_score
+                    box[cls - 1] = nms_box
+                if is_nms_finish: break
+            score = torch.cat((score[0], score[1], score[2]))
+            box = torch.cat((box[0], box[1], box[2]))
+            label = torch.cat((label[0], label[1], label[2]))
+            order = torch.argsort(score, descending=True)
+            score = score[order][0:keep_num_postNMS]
+            box = box[order][0:keep_num_postNMS]
+            label = label[order][0:keep_num_postNMS]
+
+            # suppress low score
+            is_valid = (score > score_thresh)
+            score = score[is_valid]
+            box = box[is_valid]
+            label = label[is_valid]
+
+            return box, score, label
+
+
+
+
+
+
+
+
+
+
+
+
+
+            reg_out = torch.unsqueeze(mat_coord, 0)
+            cls_out = torch.unsqueeze(mat_clas, 0)
+            flatten_coord, flatten_cls, flatten_anchors = output_flattening(reg_out, cls_out, self.anchors)
+            decoded_preNMS_flatten_box = output_decoding(flatten_coord, flatten_anchors)
+            a = [torch.rand(flatten_coord.shape[0]) > 0.5 for i in range(4)]
+            x_low_outbound = (decoded_preNMS_flatten_box[:, 0] < 0)
+            y_low_outbound = (decoded_preNMS_flatten_box[:, 1] < 0)
+            x_up_outbound = (decoded_preNMS_flatten_box[:, 2] > 1088)
+            y_up_outbound = (decoded_preNMS_flatten_box[:, 3] > 800)
+            a[0] = x_low_outbound
+            a[1] = y_low_outbound
+            a[2] = x_up_outbound
+            a[3] = y_up_outbound
+            outbound_flatten_mask = (torch.sum(torch.stack(a), dim=0) > 0)
+            flatten_cls[outbound_flatten_mask] = 0
+
+            top_values, top_indices = torch.topk(flatten_cls, keep_num_preNMS)
+            last_value = top_values[-1]
+            topk_mask = flatten_cls >= last_value
+            topk_cls = flatten_cls[topk_mask]
+            topk_box = decoded_preNMS_flatten_box[topk_mask]
+            pre_nms_dir = "PreNMS"
+            self.plot_imgae_NMS(topk_box, image, pre_nms_dir,index, "Pre", keep_num_preNMS)
+
+            nms_clas, nms_prebox = self.NMS(topk_cls,topk_box, IOU_thresh)
+
+            num = min(nms_prebox.shape[0],keep_num_postNMS)
+            top_values, top_indices = torch.topk(nms_clas, num)
+            last_value = top_values[-1]
+            topk_mask = nms_clas >= last_value
+            topn_cls = nms_clas[topk_mask]
+            topn_box = nms_prebox[topk_mask]
+            post_nms_dir = "PostNMS"
+            self.plot_imgae_NMS(topn_box, image, post_nms_dir,index, "Post", keep_num_postNMS)
+
+            return topn_cls, topn_box
 
 
     # Compute the total loss of the classifier and the regressor
