@@ -1,5 +1,5 @@
 import matplotlib
-# matplotlib.use('Agg')               # No display
+matplotlib.use('Agg')               # No display
 import matplotlib.pyplot as plt
 from matplotlib import patches
 
@@ -15,81 +15,14 @@ import utils
 from pretrained_models import pretrained_models_680
 from BoxHead import BoxHead
 
-def do_visualization(dataloader, checkpoint_file, device):
-    results_pre = os.makedirs("../results/preNMS", exist_ok=True)
 
-    # =========================== Pretrained ===============================
-    # Put the path were you save the given pretrained model
-    pretrained_path = '../pretrained/checkpoint680.pth'
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    backbone, rpn = pretrained_models_680(pretrained_path)
-    backbone = backbone.to(device)
-    rpn = rpn.to(device)
-
-    # ========================= Loading Model ==============================
-    boxHead = BoxHead(Classes=3, P=7, device=device).to(device)
-    checkpoint = torch.load(checkpoint_file)
-    print("[INFO] Weight loaded from checkpoint file: {}".format(checkpoint_file))
-    boxHead.load_state_dict(checkpoint['model_state_dict'])
-    boxHead.eval()  # set to eval mode
-
-    for iter, data in enumerate(tqdm(test_loader), 0):
-        images = data['images'].to(device)
-        bbox_list = [x.to(device) for x in data['bbox']]
-        label_list = [x.to(device) for x in data['labels']]
-        index = data['index']
-
-        with torch.no_grad():
-            # Take the features from the backbone
-            backout = backbone(images)
-
-            # The RPN implementation takes as first argument the following image list
-            im_lis = ImageList(images, [(800, 1088)] * images.shape[0])
-            # Then we pass the image list and the backbone output through the rpn
-            rpnout = rpn(im_lis, backout)
-
-            # The final output is
-            # A list of proposal tensors: list:len(bz){(keep_topK,4)}
-            proposals = [proposal[0:keep_topK, :] for proposal in rpnout[0]]
-            # A list of features produces by the backbone's FPN levels: list:len(FPN){(bz,256,H_feat,W_feat)}
-            fpn_feat_list = list(backout.values())
-
-            feature_vectors = boxHead.MultiScaleRoiAlign(fpn_feat_list, proposals)
-
-            class_logits, box_pred = boxHead(feature_vectors)
-            class_logits = torch.softmax(class_logits, dim=1)           # todo: check softmax is applied everywhere
-
-            # convert proposal to xywh
-            proposal_torch = torch.cat(proposals, dim=0)            # x1 y1 x2 y2
-            proposal_xywh = torch.zeros_like(proposal_torch, device=proposal_torch.device)
-            proposal_xywh[:, 0] = ((proposal_torch[:, 0] + proposal_torch[:, 2]) / 2)
-            proposal_xywh[:, 1] = ((proposal_torch[:, 1] + proposal_torch[:, 3]) / 2)
-            proposal_xywh[:, 2] = torch.abs(proposal_torch[:, 2] - proposal_torch[:, 0])
-            proposal_xywh[:, 3] = torch.abs(proposal_torch[:, 3] - proposal_torch[:, 1])
-
-            # decode output
-            prob_simp, class_simp, box_simp = utils.simplifyOutputs(class_logits, box_pred)
-            # box_decoded: format x1, y1, x2, y2
-            box_decoded = utils.decode_output(proposal_xywh, box_simp)
-
-            # Do whaterver post processing you find performs best
-            # boxes, scores, labels = boxHead.postprocess_detections(class_logits, box_pred, proposals, conf_thresh=0.8,
-            #                                                        keep_num_preNMS=200, keep_num_postNMS=3)
-
-            # only keep the top 20 non-background result
-            prob_selected, class_selected, box_selected = selectResult(prob_simp, class_simp, box_decoded)
-
-            # visualization
-            plot_prediction(images, class_selected, box_selected)
-            break       # todo: delete this
-
-
+# ================================ Helpers ==========================================
 def unnormalize_img(img):
     import torchvision.transforms.functional
     return torchvision.transforms.functional.normalize(img, mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
                                                           std=[1/0.229, 1/0.224, 1/0.225])
 
-def plot_prediction(img, class_selected, box_selected):
+def plot_prediction(img, class_selected, box_selected, index):
     assert img.dim() == 4
     assert img.shape[0] == 1
     img_unnormalized = unnormalize_img(img)
@@ -102,10 +35,18 @@ def plot_prediction(img, class_selected, box_selected):
     # plot bounding box
     for i in range(class_selected.shape[0]):
         bbox = box_selected[i]
-        rect = patches.Rectangle((bbox[0], bbox[1]), bbox[2] - bbox[0], bbox[3] - bbox[1], linewidth=1, edgecolor='r', facecolor='none')
+        if class_selected[i] == 1:
+            color = 'r'
+        elif class_selected[i] == 2:
+            color = 'g'
+        else:
+            color = 'b'
+        rect = patches.Rectangle((bbox[0], bbox[1]), bbox[2] - bbox[0], bbox[3] - bbox[1], linewidth=1, edgecolor=color, facecolor='none')
         ax.add_patch(rect)
 
     plt.show()
+    plt.savefig(os.path.join(dir_prenms, "{}.png".format(index)))
+    plt.close('all')
 
 
 def selectResult(prob_simp, class_simp, box_decoded, N_keep = 20):
@@ -129,6 +70,88 @@ def selectResult(prob_simp, class_simp, box_decoded, N_keep = 20):
 
     return prob_sorted[0:N_keep], class_sorted[0:N_keep], box_decoded_sorted[0:N_keep]
 
+
+def visualize_img(images, index, backbone, rpn, boxHead):
+    """
+    Run inference and visualization for one image
+    :param images:
+    :param index:
+    :param backbone:
+    :param rpn:
+    :param boxHead:
+    :return:
+    """
+    with torch.no_grad():
+        # Take the features from the backbone
+        backout = backbone(images)
+
+        # The RPN implementation takes as first argument the following image list
+        im_lis = ImageList(images, [(800, 1088)] * images.shape[0])
+        # Then we pass the image list and the backbone output through the rpn
+        rpnout = rpn(im_lis, backout)
+
+        # The final output is
+        # A list of proposal tensors: list:len(bz){(keep_topK,4)}
+        proposals = [proposal[0:keep_topK, :] for proposal in rpnout[0]]
+        # A list of features produces by the backbone's FPN levels: list:len(FPN){(bz,256,H_feat,W_feat)}
+        fpn_feat_list = list(backout.values())
+
+        feature_vectors = boxHead.MultiScaleRoiAlign(fpn_feat_list, proposals)
+
+        class_logits, box_pred = boxHead(feature_vectors)
+        class_logits = torch.softmax(class_logits, dim=1)  # todo: check softmax is applied everywhere
+
+        # convert proposal to xywh
+        proposal_torch = torch.cat(proposals, dim=0)  # x1 y1 x2 y2
+        proposal_xywh = torch.zeros_like(proposal_torch, device=proposal_torch.device)
+        proposal_xywh[:, 0] = ((proposal_torch[:, 0] + proposal_torch[:, 2]) / 2)
+        proposal_xywh[:, 1] = ((proposal_torch[:, 1] + proposal_torch[:, 3]) / 2)
+        proposal_xywh[:, 2] = torch.abs(proposal_torch[:, 2] - proposal_torch[:, 0])
+        proposal_xywh[:, 3] = torch.abs(proposal_torch[:, 3] - proposal_torch[:, 1])
+
+        # decode output
+        prob_simp, class_simp, box_simp = utils.simplifyOutputs(class_logits, box_pred)
+        # box_decoded: format x1, y1, x2, y2
+        box_decoded = utils.decode_output(proposal_xywh, box_simp)
+
+        # Do whaterver post processing you find performs best
+        # boxes, scores, labels = boxHead.postprocess_detections(class_logits, box_pred, proposals, conf_thresh=0.8,
+        #                                                        keep_num_preNMS=200, keep_num_postNMS=3)
+
+        # only keep the top 20 non-background result
+        prob_selected, class_selected, box_selected = selectResult(prob_simp, class_simp, box_decoded)
+
+        # visualization
+        plot_prediction(images, class_selected, box_selected, index=index)
+
+# ===================================== MAIN ==================================================
+def do_visualization(dataloader, checkpoint_file, device):
+    results_pre = os.makedirs(dir_prenms, exist_ok=True)
+
+    # =========================== Pretrained ===============================
+    # Put the path were you save the given pretrained model
+    pretrained_path = '../pretrained/checkpoint680.pth'
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    backbone, rpn = pretrained_models_680(pretrained_path)
+    backbone = backbone.to(device)
+    rpn = rpn.to(device)
+
+    # ========================= Loading Model ==============================
+    boxHead = BoxHead(Classes=3, P=7, device=device).to(device)
+    checkpoint = torch.load(checkpoint_file)
+    print("[INFO] Weight loaded from checkpoint file: {}".format(checkpoint_file))
+    boxHead.load_state_dict(checkpoint['model_state_dict'])
+    boxHead.eval()  # set to eval mode
+
+    for iter, data in enumerate(tqdm(dataloader), 0):
+        images = data['images'].to(device)
+        index = data['index'][0]
+        assert len(images) == 1
+        visualize_img(images, index, backbone, rpn, boxHead)
+        # if (iter == 10):
+        #     break
+
+
 if __name__ == '__main__':
     #reproductivity
     torch.random.manual_seed(1)
@@ -143,7 +166,9 @@ if __name__ == '__main__':
     assert os.path.isfile(checkpoint_file)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     keep_topK = 200
+    USE_HOLD_OUT = True         # visualization of HOLD-OUT set
 
+    dir_prenms = "../results/preNMS"
 
     # =========================== Dataset ==============================
     # file path and make a list
