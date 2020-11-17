@@ -86,3 +86,54 @@ def IOU(bbox_1, bbox_2):
 def output_decodingd(regressed_boxes_t,flatten_proposals, device='cpu'):
     
     return box
+
+
+# =========================== Jianxiong Added ================================
+def decode_output(proposal_xywh, box_xywh):
+    """
+
+    :param proposal_xywh: (N, 4): proposal in xywh format
+    :param box_xywh:      (N, 4): boxes in xywh format
+    :return:
+    """
+    assert proposal_xywh.shape[1] == 4
+    assert box_xywh.shape[1] == 4
+
+    box_decoded = torch.zeros_like(box_xywh, device=box_xywh.device)
+    box_decoded[:, 0] = box_xywh[:, 0] * proposal_xywh[:, 2] + proposal_xywh[:, 0]
+    box_decoded[:, 1] = box_xywh[:, 1] * proposal_xywh[:, 3] + proposal_xywh[:, 1]
+    box_decoded[:, 2] = torch.exp(box_xywh[:, 2]) * proposal_xywh[:, 2]
+    box_decoded[:, 3] = torch.exp(box_xywh[:, 3]) * proposal_xywh[:, 3]
+
+    return box_decoded
+
+
+def simplifyOutputs(class_logits, box_pred):
+    """
+    For each prediction, take the maximal prob and its corresponding box
+    All background is going to have
+    :param class_logits: N * (C+1)
+    :param box_pred: N * (4 * C), [tx ty th tw], [tx ty th tw], [tx ty th tw]
+    :return:
+        result_prob: (N,)
+        result_class: (N,)
+        result_box: (N, 4), tx ty th tw
+    """
+    assert class_logits.shape[1] == 4
+    assert box_pred.shape[1] == 12
+
+    N = class_logits.shape[0]
+    result_prob = torch.zeros((N,), device=class_logits.device)
+    result_class = torch.zeros((N,), device=class_logits.device)
+    result_box = torch.zeros((N,4), device=class_logits.device)
+
+    # compute the indice and max prob
+    tmp = torch.max(class_logits, dim=1)
+    result_prob = tmp.values
+    result_class = tmp.indices
+
+    # get the corresponding box
+    for i in range(3):
+        result_box[result_class == (i+1)] = box_pred[result_class == (i+1), (i*4): (i*4 + 4)]
+
+    return result_prob, result_class, result_box
