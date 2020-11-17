@@ -93,7 +93,7 @@ def decode_output(proposal_xywh, box_xywh):
     """
 
     :param proposal_xywh: (N, 4): proposal in xywh format
-    :param box_xywh:      (N, 4): boxes in xywh format
+    :param box_xywh:      (N, 4): boxes in tx, ty, tw, th
     :return:
         box_decoded: the decoded boxes (in format x1, y1, x2, y2)
     """
