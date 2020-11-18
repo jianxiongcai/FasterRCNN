@@ -149,6 +149,8 @@ def compute_map(dataloader, checkpoint_file, device):
     for iter, data in enumerate(tqdm(dataloader), 0):
         images = data['images'].to(device)
         assert len(images) == 1, "Only support batch_size == 1"
+        # if (iter == 50):
+        #     break
 
         labels_gt_all = data['labels'][0].to(device)
         bbox_gt_all = data["bbox"][0].to(device)
@@ -168,10 +170,10 @@ def compute_map(dataloader, checkpoint_file, device):
             boxes_pred = boxes[clas == target_class]   #  m,4  x1,y1,x2,y2
 
             boxes_pred_xywh = torch.zeros_like(boxes_pred, dtype=boxes_pred.dtype, device = boxes_pred.device)
-            boxes_pred_xywh[:,0]=(boxes_pred_xywh[:,0]+boxes_pred_xywh[:,2])/2
-            boxes_pred_xywh[:,1]=(boxes_pred_xywh[:,1]+boxes_pred_xywh[:,3])/2
-            boxes_pred_xywh[:,2]=boxes_pred_xywh[:,2]-boxes_pred_xywh[:,0]
-            boxes_pred_xywh[:,3]=boxes_pred_xywh[:,3]-boxes_pred_xywh[:,1]
+            boxes_pred_xywh[:,0]=(boxes_pred[:,0]+boxes_pred[:,2])/2
+            boxes_pred_xywh[:,1]=(boxes_pred[:,1]+boxes_pred[:,3])/2
+            boxes_pred_xywh[:,2]=boxes_pred[:,2]-boxes_pred[:,0]
+            boxes_pred_xywh[:,3]=boxes_pred[:,3]-boxes_pred[:,1]
 
             # determine if it is a match with bbox
             N_gt = len(bbox_gt)  #n
@@ -191,8 +193,6 @@ def compute_map(dataloader, checkpoint_file, device):
                         match_indice[x] = index
 
             metric_trackers[tracker_i].add_match(prob_pred, tp_indicator, match_indice, N_gt)
-
-        debug = True
 
     # compute map
     for i in range(3):

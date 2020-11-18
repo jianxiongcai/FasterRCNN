@@ -88,15 +88,25 @@ class MetricTracker:
         sorted_match_indice = self.match_indice[sorted_idx]
 
         # increase threshold and compute precision and recall
-        for score, is_tp, match_idx in zip(sorted_scores, sorted_tp_indicator, sorted_match_indice):
-            # update stats
-            n_tot_pred += 1
-            if is_tp:
-                n_tp = n_tp + 1
-                obj_recall_indicator[match_idx] = True
-            # compute precision and recall
-            precision = n_tp / n_tot_pred
-            recall = np.sum(obj_recall_indicator) / self.num_gts
+        # for score, is_tp, match_idx in zip(sorted_scores, sorted_tp_indicator, sorted_match_indice):
+        #     match_idx = int(match_idx)
+        #     # update stats
+        #     n_tot_pred += 1
+        #     if is_tp:
+        #         n_tp = n_tp + 1
+        #         obj_recall_indicator[match_idx] = True
+        #     # compute precision and recall
+        #     precision = n_tp / n_tot_pred
+        #     recall = np.sum(obj_recall_indicator) / self.num_gts
+        #     precision_recall[recall] = precision
+
+        for thres in np.arange(0.5, 0.99, 0.1):
+            selected_scores = sorted_scores[sorted_scores > thres]
+            selected_tp_indicator = sorted_tp_indicator[sorted_scores > thres]
+            selected_match_indice = sorted_match_indice[sorted_scores > thres]
+
+            precision = np.sum(selected_tp_indicator) / selected_tp_indicator.shape[0]
+            recall = np.sum(selected_tp_indicator) / self.num_gts
             precision_recall[recall] = precision
 
         self.precision_recall = precision_recall
@@ -114,6 +124,6 @@ class MetricTracker:
         precision_sorted = [self.precision_recall[k] for k in recall_sorted]
         if len(recall_sorted) > 1:
             # compute auc
-            return auc(recall_sorted, precision_sorted)
+            return auc(recall_sorted, precision_sorted) / (np.max(recall_sorted) - np.min(recall_sorted))
         else:
             return 0.0
