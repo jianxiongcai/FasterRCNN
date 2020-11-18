@@ -4,6 +4,9 @@ import torch.backends.cudnn
 import torch.utils.data
 from functools import partial
 import os.path
+import matplotlib.cm as cm
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 
 def set_deterministic():
     # reproducibility
@@ -137,4 +140,38 @@ def simplifyOutputs(class_logits, box_pred):
 
     return result_prob, result_class, result_box
 
+def plot_visual_correctness_batch(img, label, boxes, mask, indexes, visual_dir, rgb_color_list):
+    batch_size = len(indexes)
+    for i in range(batch_size):
+        ## TODO: plot images with annotations
+        fig, ax = plt.subplots(1)
+        # the input image: to (800, 1088, 3)
+        alpha = 0.15
+        # img_vis = alpha * BuildDataset.unnormalize_img(img[i])
+        img_vis = img[i].clone()
+        img_vis = img_vis.permute((1, 2, 0)).cpu().numpy()
 
+        # object mask: assign color with class label
+        for obj_i, obj_mask in enumerate(mask[i], 0):
+            obj_label = label[i][obj_i]
+
+            rgb_color = rgb_color_list[obj_label - 1]
+            # (800, 1088, 3)
+            obj_mask_np = np.stack([obj_mask.cpu().numpy(), obj_mask.cpu().numpy(), obj_mask.cpu().numpy()], axis=2)
+            # alpha-blend mask
+            img_vis[obj_mask_np != 0] = ((1 - alpha) * rgb_color + alpha * img_vis)[obj_mask_np != 0]
+
+        # overlapping objects
+        img_vis = np.clip(img_vis, 0, 1)
+        ax.imshow(img_vis)
+
+        # bounding box
+        for obj_i, obj_bbox in enumerate(boxes[i], 0):
+            obj_w = obj_bbox[2]
+            obj_h = obj_bbox[3]
+            rect = patches.Rectangle((obj_bbox[0] - obj_bbox[2] / 2, obj_bbox[1] - obj_bbox[3] / 2), obj_w, obj_h, linewidth=1, edgecolor='r',
+                                     facecolor='none')
+            ax.add_patch(rect)
+
+        plt.savefig("{}/{}.png".format(visual_dir, indexes[i]))
+        plt.show()

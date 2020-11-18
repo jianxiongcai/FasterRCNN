@@ -67,9 +67,7 @@ def do_eval(dataloader, checkpoint_file, device, result_dir=None, keep_topK=200,
                                            IOU_thresh=0.5,
                                            conf_thresh=0.5,
                                            keep_num_preNMS=keep_num_preNMS,keep_num_postNMS=keep_num_postNMS)
-            # print(post_nms_prob)
-            # print(post_nms_class)
-            # print(post_nms_box)
+
             # if iter == 4:
             #     break
 

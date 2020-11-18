@@ -4,7 +4,14 @@ import torch.nn.functional as F
 from torch import nn
 import torchvision.ops
 from utils import *
-from main_visualization import selectResult
+from dataset import BuildDataset, BuildDataLoader
+from pretrained_models import pretrained_models_680
+from tqdm import tqdm
+from torchvision import transforms
+from main_visualization import *
+import matplotlib
+
+# matplotlib.use('TkAgg')
 
 class BoxHead(torch.nn.Module):
     def __init__(self,Classes=3,P=7,device=('cuda' if torch.cuda.is_available() else 'cpu')):
@@ -397,5 +404,190 @@ class BoxHead(torch.nn.Module):
 
         return class_logits, box_pred
 
+
+    #  This function assigns to each proposal either a ground truth box or the background class (we assume background class is 0)
+    #  Input:pytorch
+    #       proposals: list:len(bz){(per_image_proposals,4)} ([x1,y1,x2,y2] format)
+    #       gt_labels: list:len(bz) {(n_obj)}
+    #       bbox: list:len(bz){(n_obj, 4)}
+    #  Output: (make sure the ordering of the proposals are consistent with MultiScaleRoiAlign)
+
+    #       labels: (total_proposals,1) (the class that the proposal is assigned)
+    #       regressor_target: (total_proposals,4) (target encoded in the [t_x,t_y,t_w,t_h] format)
+    def create_ground_truth(self,proposals, gt_labels, bbox):
+        bz = len(proposals)
+        total_num_pro = 0
+        for i in range(bz):
+            total_num_pro += proposals[i].shape[0]
+
+        labels = torch.zeros(total_num_pro, dtype = torch.long).to(self.device)
+        regressor_target = torch.zeros(total_num_pro, 4).to(self.device)
+
+        count = 0
+        for bz_index, each_bz_pro in enumerate(proposals):
+            x = each_bz_pro
+            y = torch.zeros_like(x, dtype=torch.float, device=self.device)
+            y[:, 0] = (x[:, 0] + x[:, 2]) / 2
+            y[:, 1] = (x[:, 1] + x[:, 3]) / 2
+            y[:, 2] = (x[:, 2] - x[:, 0])
+            y[:, 3] = (x[:, 3] - x[:, 1])
+            box_bz = bbox[bz_index].view(-1, 4)
+            gt_label_bz = gt_labels[bz_index]
+            num_obj = box_bz.shape[0]
+            num_pro = y.shape[0]
+
+            for i in range(num_pro):
+                cur_pro = y[i].view(1, -1)
+                cur_pro_n = cur_pro.repeat(num_obj, 1)
+                iou = IOU(cur_pro_n, box_bz)
+                max_iou = torch.max(iou)
+                max_iou_idx = torch.argmax(iou)
+                if max_iou <= 0.5:
+                    continue
+                if max_iou > 0.5:
+                    labels[count + i] = gt_label_bz[max_iou_idx]
+                    regressor_target[count + i, 0] = (box_bz[max_iou_idx, 0] - y[i, 0]) / (y[i, 2] + 1e-9)
+                    regressor_target[count + i, 1] = (box_bz[max_iou_idx, 1] - y[i, 1]) / (y[i, 3] + 1e-9)
+                    regressor_target[count + i, 2] = torch.log(box_bz[max_iou_idx, 2] / y[i, 2])
+                    regressor_target[count + i, 3] = torch.log(box_bz[max_iou_idx, 3] / y[i, 3])
+            count += num_pro
+        labels=torch.unsqueeze(labels,1)
+        return labels, regressor_target
+
 if __name__ == '__main__':
-    pass
+    # reproductivity
+    keep_topK_check = 20
+    torch.random.manual_seed(1)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(0)
+    batch_size = 1
+
+    imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = "../data/hw3_mycocodata_labels_comp_zlib.npy"
+    bboxes_path = "../data/hw3_mycocodata_bboxes_comp_zlib.npy"
+
+    pretrained_path = '../pretrained/checkpoint680.pth'
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    backbone, rpn = pretrained_models_680(pretrained_path)
+
+    # we will need the ImageList from torchvision
+    from torchvision.models.detection.image_list import ImageList
+
+    paths = [imgs_path, masks_path, labels_path, bboxes_path]
+    # load the data into data.Dataset
+    dataset = BuildDataset(paths, augmentation=False)
+
+    train_dataset, test_dataset = split_dataset(dataset)
+
+    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    train_loader = train_build_loader.loader()
+
+    # ============================ Train ================================
+    box_head = BoxHead(device=device)
+    box_head.to(device)
+
+    result_dir = "../Grndbox"
+    os.makedirs(result_dir, exist_ok=True)
+
+
+    def color_switch(class_id):
+        return{
+            1: "b",
+            2: "g",
+            3: "r"
+        }.get(class_id)
+
+
+    for iter, data in enumerate(tqdm(train_loader), 0):
+        img = data['images'].to(device)
+        indexes = data['index']
+        bbox_list = [x.to(device) for x in data['bbox']]
+        label_list = [x.to(device) for x in data['labels']]
+        num_bbox_class = []
+        num_class1 = torch.count_nonzero(bbox_list[0] == 1)
+        num_bbox_class.append(num_class1)
+        num_class2 = torch.count_nonzero(bbox_list[0] == 2)
+        num_bbox_class.append(num_class2)
+        num_class3 = torch.count_nonzero(bbox_list[0] == 3)
+        num_bbox_class.append(num_class3)
+
+        image = transforms.functional.normalize(img[0].cpu().detach(),
+                                                [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                                                [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
+
+        image_vis = image.permute(1, 2, 0).cpu().detach().numpy()
+        num_grnd_box = len(bbox_list)
+
+        # Take the features from the backbone
+        backout = backbone(img)
+
+        # The RPN implementation takes as first argument the following image list
+        im_lis = ImageList(img, [(800, 1088)] * img.shape[0])
+        rpnout = rpn(im_lis, backout)
+
+        # The final output is a list of proposal tensors: list:len(bz){(keep_topK,4)}
+        proposals = [proposal[0:keep_topK_check, :] for proposal in rpnout[0]]
+        # generate gt labels
+        labels, regressor_target = box_head.create_ground_truth(proposals, label_list, bbox_list)      #tx,ty,tw,twh
+        labels = labels.flatten()
+        # A list of features produces by the backbone's FPN levels: list:len(FPN){(bz,256,H_feat,W_feat)}
+        fpn_feat_list = list(backout.values())
+        proposal_torch = torch.cat(proposals, dim=0)  # x1 y1 x2 y2
+        proposal_xywh = torch.zeros_like(proposal_torch, device=proposal_torch.device)
+        proposal_xywh[:, 0] = ((proposal_torch[:, 0] + proposal_torch[:, 2]) / 2)
+        proposal_xywh[:, 1] = ((proposal_torch[:, 1] + proposal_torch[:, 3]) / 2)
+        proposal_xywh[:, 2] = torch.abs(proposal_torch[:, 2] - proposal_torch[:, 0])
+        proposal_xywh[:, 3] = torch.abs(proposal_torch[:, 3] - proposal_torch[:, 1])
+
+        non_bg_mask = (labels != 0).flatten()
+        label = labels[non_bg_mask]
+        box_xywh = regressor_target[non_bg_mask,:]
+        proposal_xy = proposal_torch[non_bg_mask,:]
+        proposal_xywh = proposal_xywh[non_bg_mask,:]
+        box_decoded = decode_output(proposal_xywh, box_xywh)
+
+        for i in range(1,4):
+            class_mask = (label == i)
+            # if torch.count_nonzero(class_mask) == 0:
+            #     continue
+            class_grnd_bbox = box_decoded[class_mask, :]
+            num_proposal_class = class_grnd_bbox.shape[0]
+            class_proposal = proposal_xy[class_mask,:]
+            fig, ax = plt.subplots(1, 1)
+            ax.imshow(image_vis)
+            for num in range(num_proposal_class):
+                coord = class_proposal[num,:]
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,                                             color='yellow')
+                ax.add_patch(rect)
+
+                coord = class_grnd_bbox[num,:]
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                         color=color_switch(i))
+                ax.add_patch(rect)
+            plt.savefig("{}/{}_class{}.png".format(result_dir,indexes[0],i))
+            # plt.show()
+            plt.close('all')
+
+        if iter == 80:
+            break
+
+
+
+
+
+
+
+        # # plot bbox
+        # rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+        #                          color='r')
+        # ax.add_patch(rect)
+        # # plot positive anchor
+        # rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
+        #                          fill=False, color='b')
+        # ax.add_patch(rect)
+
+
+
+
