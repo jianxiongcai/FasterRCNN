@@ -183,15 +183,16 @@ def compute_map(dataloader, checkpoint_file, device):
 
             tp_indicator = torch.zeros((N_pred,))   #m
             match_indice = torch.zeros((N_pred,))   #m
-            # IOU matrix
-            iou_mat = torch.zeros((N_pred, N_gt))  # m,n
-            for x in range(N_pred):
-                for y in range(N_gt):
-                    iou_mat[x, y] = IOU(torch.unsqueeze(boxes_pred_xywh[x, :], 0), torch.unsqueeze(bbox_gt[y, :], 0))
-                if torch.max(iou_mat[x, :]) >= 0.5:
-                    tp_indicator[x] = 1
-                    index = torch.argmax(iou_mat[x, :])
-                    match_indice[x] = index
+            if (N_pred != 0) and (N_gt != 0):
+                # IOU matrix
+                iou_mat = torch.zeros((N_pred, N_gt))  # m,n
+                for x in range(N_pred):
+                    for y in range(N_gt):
+                        iou_mat[x, y] = IOU(torch.unsqueeze(boxes_pred_xywh[x, :], 0), torch.unsqueeze(bbox_gt[y, :], 0))
+                    if torch.max(iou_mat[x, :]) >= 0.5:
+                        tp_indicator[x] = 1
+                        index = torch.argmax(iou_mat[x, :])
+                        match_indice[x] = index
 
             metric_trackers[tracker_i].add_match(prob_pred, tp_indicator, match_indice, N_gt)
 
