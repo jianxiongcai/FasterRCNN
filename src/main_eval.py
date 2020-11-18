@@ -141,7 +141,11 @@ def compute_map(dataloader, checkpoint_file, device):
 
     # ========================= Loading Model ==============================
     boxHead = BoxHead(Classes=3, P=7, device=device).to(device)
-    checkpoint = torch.load(checkpoint_file)
+    if torch.cuda.is_available():
+        checkpoint = torch.load(checkpoint_file)
+    else:
+        checkpoint = torch.load(checkpoint_file, map_location=torch.device('cpu'))
+
     print("[INFO] Weight loaded from checkpoint file: {}".format(checkpoint_file))
     boxHead.load_state_dict(checkpoint['model_state_dict'])
     boxHead.eval()  # set to eval mode
