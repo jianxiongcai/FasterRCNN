@@ -7,6 +7,11 @@ from utils import *
 from dataset import BuildDataset, BuildDataLoader
 from pretrained_models import pretrained_models_680
 from tqdm import tqdm
+from torchvision import transforms
+from main_visualization import *
+import matplotlib
+
+# matplotlib.use('TkAgg')
 
 class BoxHead(torch.nn.Module):
     def __init__(self,Classes=3,P=7,device=('cuda' if torch.cuda.is_available() else 'cpu')):
@@ -252,7 +257,7 @@ class BoxHead(torch.nn.Module):
                 max_index.add(idx_curr)
 
         if len(iou_mat) == len(max_index):      # quick return if keep everything
-            return prebox, clas
+            return clas, prebox
         nms_clas = clas[list(max_index)]
         nms_prebox = prebox[list(max_index), :]
         return nms_clas, nms_prebox
@@ -476,10 +481,37 @@ if __name__ == '__main__':
     box_head = BoxHead(device=device)
     box_head.to(device)
 
+    result_dir = "../Grndbox"
+    os.makedirs(result_dir, exist_ok=True)
+
+
+    def color_switch(class_id):
+        return{
+            1: "b",
+            2: "g",
+            3: "r"
+        }.get(class_id)
+
+
     for iter, data in enumerate(tqdm(train_loader), 0):
         img = data['images'].to(device)
+        indexes = data['index']
         bbox_list = [x.to(device) for x in data['bbox']]
         label_list = [x.to(device) for x in data['labels']]
+        num_bbox_class = []
+        num_class1 = torch.count_nonzero(bbox_list[0] == 1)
+        num_bbox_class.append(num_class1)
+        num_class2 = torch.count_nonzero(bbox_list[0] == 2)
+        num_bbox_class.append(num_class2)
+        num_class3 = torch.count_nonzero(bbox_list[0] == 3)
+        num_bbox_class.append(num_class3)
+
+        image = transforms.functional.normalize(img[0].cpu().detach(),
+                                                [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                                                [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
+
+        image_vis = image.permute(1, 2, 0).cpu().detach().numpy()
+        num_grnd_box = len(bbox_list)
 
         # Take the features from the backbone
         backout = backbone(img)
@@ -502,13 +534,53 @@ if __name__ == '__main__':
         proposal_xywh[:, 2] = torch.abs(proposal_torch[:, 2] - proposal_torch[:, 0])
         proposal_xywh[:, 3] = torch.abs(proposal_torch[:, 3] - proposal_torch[:, 1])
 
-
-
         non_bg_mask = (labels != 0).flatten()
         label = labels[non_bg_mask]
         box_xywh = regressor_target[non_bg_mask,:]
+        proposal_xy = proposal_torch[non_bg_mask,:]
         proposal_xywh = proposal_xywh[non_bg_mask,:]
         box_decoded = decode_output(proposal_xywh, box_xywh)
 
+        for i in range(1,4):
+            class_mask = (label == i)
+            # if torch.count_nonzero(class_mask) == 0:
+            #     continue
+            class_grnd_bbox = box_decoded[class_mask, :]
+            num_proposal_class = class_grnd_bbox.shape[0]
+            class_proposal = proposal_xy[class_mask,:]
+            fig, ax = plt.subplots(1, 1)
+            ax.imshow(image_vis)
+            for num in range(num_proposal_class):
+                coord = class_proposal[num,:]
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,                                             color='yellow')
+                ax.add_patch(rect)
 
-        pass
+                coord = class_grnd_bbox[num,:]
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                         color=color_switch(i))
+                ax.add_patch(rect)
+            plt.savefig("{}/{}_class{}.png".format(result_dir,indexes[0],i))
+            # plt.show()
+            plt.close('all')
+
+        if iter == 80:
+            break
+
+
+
+
+
+
+
+        # # plot bbox
+        # rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+        #                          color='r')
+        # ax.add_patch(rect)
+        # # plot positive anchor
+        # rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
+        #                          fill=False, color='b')
+        # ax.add_patch(rect)
+
+
+
+

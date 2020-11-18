@@ -29,7 +29,7 @@ if __name__ == '__main__':
     boxHead.eval()
 
     # Put the path were you have your save network
-    train_model_path='checkpoints/epoch_49'
+    train_model_path='checkpoints_sat/epoch_49'
     print("[INFO] Loading from model: {}".format(train_model_path))
     checkpoint = torch.load(train_model_path)
     # reload models
