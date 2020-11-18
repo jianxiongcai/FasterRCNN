@@ -100,7 +100,7 @@ class MetricTracker:
         #     recall = np.sum(obj_recall_indicator) / self.num_gts
         #     precision_recall[recall] = precision
 
-        for thres in np.arange(0.5, 0.99, 0.1):
+        for thres in np.arange(0.2, 0.99, 0.01):
             selected_scores = sorted_scores[sorted_scores > thres]
             selected_tp_indicator = sorted_tp_indicator[sorted_scores > thres]
             selected_match_indice = sorted_match_indice[sorted_scores > thres]
