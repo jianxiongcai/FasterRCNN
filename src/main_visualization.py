@@ -22,7 +22,7 @@ def unnormalize_img(img):
     return torchvision.transforms.functional.normalize(img, mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
                                                           std=[1/0.229, 1/0.224, 1/0.225])
 
-def plot_prediction(img, class_selected, box_selected, index):
+def plot_prediction(img, class_selected, box_selected, index, result_dir):
     assert img.dim() == 4
     assert img.shape[0] == 1
     img_unnormalized = unnormalize_img(img)
@@ -45,7 +45,7 @@ def plot_prediction(img, class_selected, box_selected, index):
         ax.add_patch(rect)
 
     plt.show()
-    plt.savefig(os.path.join(dir_prenms, "{}.png".format(index)))
+    plt.savefig(os.path.join(result_dir, "{}.png".format(index)))
     plt.close('all')
 
 
@@ -114,19 +114,23 @@ def visualize_img(images, index, backbone, rpn, boxHead):
         # box_decoded: format x1, y1, x2, y2
         box_decoded = utils.decode_output(proposal_xywh, box_simp)
 
-        # Do whaterver post processing you find performs best
-        # boxes, scores, labels = boxHead.postprocess_detections(class_logits, box_pred, proposals, conf_thresh=0.8,
-        #                                                        keep_num_preNMS=200, keep_num_postNMS=3)
-
-        # only keep the top 20 non-background result
+        # visualization: PreNMS
         prob_selected, class_selected, box_selected = selectResult(prob_simp, class_simp, box_decoded)
+        plot_prediction(images, class_selected, box_selected, index=index, result_dir=dir_prenms)
 
-        # visualization
-        plot_prediction(images, class_selected, box_selected, index=index)
+        # Do whaterver post processing you find performs best
+        post_nms_prob, post_nms_class, post_nms_box = boxHead.postprocess_detections(prob_simp, class_simp, box_decoded, conf_thresh=0.8,
+                                                               keep_num_preNMS=200, keep_num_postNMS=3, IOU_thresh=0.5)
+
+        # visualization: PostNMS
+        assert post_nms_class.dim() == 1
+        assert post_nms_box.dim() == 2
+        plot_prediction(images, post_nms_class, post_nms_box, index=index, result_dir=dir_postnms)
 
 # ===================================== MAIN ==================================================
 def do_visualization(dataloader, checkpoint_file, device):
-    results_pre = os.makedirs(dir_prenms, exist_ok=True)
+    os.makedirs(dir_prenms, exist_ok=True)
+    os.makedirs(dir_postnms, exist_ok=True)
 
     # =========================== Pretrained ===============================
     # Put the path were you save the given pretrained model
@@ -169,6 +173,7 @@ if __name__ == '__main__':
     USE_HOLD_OUT = True         # visualization of HOLD-OUT set
 
     dir_prenms = "../results/preNMS"
+    dir_postnms = "../results/postNMS"
 
     # =========================== Dataset ==============================
     # file path and make a list

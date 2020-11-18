@@ -75,9 +75,12 @@ if __name__ == '__main__':
             box_decoded = decode_output(proposal_xywh, result_box)
 
             # Do whaterver post processing you find performs best
-            boxes,scores,labels=boxHead.postprocess_detections(result_prob, result_class, box_decoded, conf_thresh=0.8, keep_num_preNMS=200, keep_num_postNMS=3, IOU_thresh=0.5)
+            post_nms_prob, post_nms_class, post_nms_box=boxHead.postprocess_detections(result_prob, result_class, box_decoded, conf_thresh=0.8, keep_num_preNMS=200, keep_num_postNMS=3, IOU_thresh=0.5)
 
-            for box, score, label in zip(boxes, scores, labels):
+            post_nms_prob = [post_nms_prob]
+            post_nms_class = [post_nms_class]
+            post_nms_box = [post_nms_box]
+            for box, score, label in zip(post_nms_box, post_nms_prob, post_nms_class):
                 if box is None:
                     cpu_boxes.append(None)
                     cpu_scores.append(None)
