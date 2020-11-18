@@ -22,10 +22,10 @@ np.random.seed(0)
 
 # =========================== Config ==========================
 batch_size = 4
-init_lr = 1e-4
+init_lr = 7e-4
 num_epochs = 50
 milestones = [8, 13]
-loss_ratio = 200
+loss_ratio = 26.548
 RESULT_DIR = "checkpoints"
 keep_topK_train = 200
 keep_topK_test = 200

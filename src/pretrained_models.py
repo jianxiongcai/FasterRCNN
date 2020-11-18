@@ -100,6 +100,8 @@ if __name__ == '__main__':
             for feat in fpn_feat_list:
                 print(feat.shape)
 
+            torch.save([x.cpu() for x in proposals], "../debug_data/proposals.pth")
+            torch.save([x.cpu() for x in fpn_feat_list], "../debug_data/fpn_feat_list.pth")
 
             # Visualization of the proposals
             for i in range(batch_size):
@@ -115,6 +117,7 @@ if __name__ == '__main__':
                     rect=patches.Rectangle((box[0],box[1]),box[2]-box[0],box[3]-box[1],fill=False,color='b')
                     ax.add_patch(rect)
                 plt.show()
+
 
             break
 
