@@ -226,6 +226,9 @@ class BoxHead(torch.nn.Module):
         ##################################
         # TODO perform NSM
         ##################################
+        assert clas.dim() == 1
+        assert prebox.dim() == 2
+
         num_box = prebox.shape[0]
         if num_box == 1:
             return clas, prebox
@@ -260,6 +263,10 @@ class BoxHead(torch.nn.Module):
             return clas, prebox
         nms_clas = clas[list(max_index)]
         nms_prebox = prebox[list(max_index), :]
+
+        assert nms_clas.dim() == 1
+        assert nms_prebox.dim() == 2
+
         return nms_clas, nms_prebox
 
     def selectAboveConf(self,result_prob, result_class, box_decoded, conf_thresh):
