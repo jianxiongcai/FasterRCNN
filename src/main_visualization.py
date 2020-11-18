@@ -36,11 +36,11 @@ def plot_prediction(img, class_selected, box_selected, index, result_dir):
     for i in range(class_selected.shape[0]):
         bbox = box_selected[i]
         if class_selected[i] == 1:
-            color = 'r'
-        elif class_selected[i] == 2:
-            color = 'g'
-        else:
             color = 'b'
+        elif class_selected[i] == 2:
+            color = 'r'
+        else:
+            color = 'g'
         rect = patches.Rectangle((bbox[0], bbox[1]), bbox[2] - bbox[0], bbox[3] - bbox[1], linewidth=1, edgecolor=color, facecolor='none')
         ax.add_patch(rect)
 
