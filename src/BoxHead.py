@@ -495,8 +495,8 @@ if __name__ == '__main__':
     def color_switch(class_id):
         return{
             1: "b",
-            2: "g",
-            3: "r"
+            2: "r",
+            3: "g"
         }.get(class_id)
 
 

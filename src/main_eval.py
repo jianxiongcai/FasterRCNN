@@ -15,7 +15,7 @@ import utils
 from pretrained_models import pretrained_models_680
 from BoxHead import *
 from metric_tracker import MetricTracker
-
+from utils import IOU
 
 # ================================ Helpers ==========================================
 def unnormalize_img(img):
@@ -161,17 +161,33 @@ def compute_map(dataloader, checkpoint_file, device):
             target_class = tracker_i + 1
 
             labels_gt = labels_gt_all[labels_gt_all == target_class]
-            bbox_gt = bbox_gt_all[labels_gt_all == target_class]
+            bbox_gt = bbox_gt_all[labels_gt_all == target_class]  #n,4   x,y,w,h
 
-            clas_pred = clas[clas == target_class]
-            prob_pred = prob[clas == target_class]
-            boxes_pred = boxes[clas == target_class]
+            clas_pred = clas[clas == target_class]  #   m
+            prob_pred = prob[clas == target_class]  #   m
+            boxes_pred = boxes[clas == target_class]   #  m,4  x1,y1,x2,y2
+
+            boxes_pred_xywh = torch.zeros_like(boxes_pred, dtype=boxes_pred.dtype, device = boxes_pred.device)
+            boxes_pred_xywh[:,0]=(boxes_pred_xywh[:,0]+boxes_pred_xywh[:,2])/2
+            boxes_pred_xywh[:,1]=(boxes_pred_xywh[:,1]+boxes_pred_xywh[:,3])/2
+            boxes_pred_xywh[:,2]=boxes_pred_xywh[:,2]-boxes_pred_xywh[:,0]
+            boxes_pred_xywh[:,3]=boxes_pred_xywh[:,3]-boxes_pred_xywh[:,1]
 
             # determine if it is a match with bbox
-            N_gt = len(bbox_gt)
-            N_pred = len(clas_pred)
-            tp_indicator = torch.zeros((N_pred,))
-            match_indice = torch.zeros((N_pred,))
+            N_gt = len(bbox_gt)  #n
+            N_pred = len(clas_pred)  #m
+
+            tp_indicator = torch.zeros((N_pred,))   #m
+            match_indice = torch.zeros((N_pred,))   #m
+            # IOU matrix
+            iou_mat = torch.zeros((N_pred, N_gt))  # m,n
+            for x in range(N_pred):
+                for y in range(N_gt):
+                    iou_mat[x, y] = IOU(torch.unsqueeze(boxes_pred_xywh[x, :], 0), torch.unsqueeze(bbox_gt[y, :], 0))
+                if torch.max(iou_mat[x, :]) >= 0.5:
+                    tp_indicator[x] = 1
+                    index = torch.argmax(iou_mat[x, :])
+                    match_indice[x] = index
 
             metric_trackers[tracker_i].add_match(prob_pred, tp_indicator, match_indice, N_gt)
 
